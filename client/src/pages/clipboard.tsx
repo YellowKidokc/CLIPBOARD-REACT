@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   Clipboard, 
@@ -8,30 +8,39 @@ import {
   Trash2, 
   Search, 
   Plus, 
-  Clock, 
   Tag,
   Star,
   FileText,
   Code,
-  Folder,
   Settings,
   ChevronRight,
   ChevronDown,
   Sparkles,
   Keyboard,
   RotateCcw,
-  X,
   Save,
-  Edit3,
   MoreVertical,
   Inbox,
   Archive,
   Hash,
   Bot,
-  Wand2,
-  MessageSquare,
   Send,
-  Loader2
+  Loader2,
+  MessageSquare,
+  Zap,
+  Lock,
+  Globe,
+  Key,
+  User,
+  Mail,
+  Phone,
+  MapPin,
+  Calendar,
+  Link,
+  CreditCard,
+  X,
+  GripVertical,
+  Lightbulb
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,7 +60,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
   Sheet,
@@ -59,8 +67,28 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+
+interface StructuredField {
+  id: string;
+  label: string;
+  value: string;
+  type: "text" | "password" | "url" | "email" | "phone" | "date" | "api_key";
+  icon: string;
+}
 
 interface ClipItem {
   id: string;
@@ -69,9 +97,11 @@ interface ClipItem {
   timestamp: Date;
   pinned: boolean;
   starred: boolean;
-  category: "clipboard" | "notes" | "snippets";
+  category: "clipboard" | "notes" | "snippets" | "prompts";
   tags: string[];
   deleted: boolean;
+  isStructured: boolean;
+  fields: StructuredField[];
 }
 
 interface HotkeyConfig {
@@ -80,6 +110,24 @@ interface HotkeyConfig {
   keys: string;
   enabled: boolean;
 }
+
+interface AIWorkflow {
+  id: string;
+  command: string;
+  name: string;
+  prompt: string;
+  icon: typeof Zap;
+}
+
+const fieldIcons: Record<string, typeof Key> = {
+  text: FileText,
+  password: Lock,
+  url: Globe,
+  email: Mail,
+  phone: Phone,
+  date: Calendar,
+  api_key: Key,
+};
 
 const initialClips: ClipItem[] = [
   {
@@ -91,7 +139,9 @@ const initialClips: ClipItem[] = [
     starred: true,
     category: "clipboard",
     tags: ["work", "api"],
-    deleted: false
+    deleted: false,
+    isStructured: false,
+    fields: []
   },
   {
     id: "2", 
@@ -102,7 +152,9 @@ const initialClips: ClipItem[] = [
     starred: false,
     category: "snippets",
     tags: ["code"],
-    deleted: false
+    deleted: false,
+    isStructured: false,
+    fields: []
   },
   {
     id: "3",
@@ -113,18 +165,28 @@ const initialClips: ClipItem[] = [
     starred: true,
     category: "notes",
     tags: ["meeting", "synology"],
-    deleted: false
+    deleted: false,
+    isStructured: false,
+    fields: []
   },
   {
     id: "4",
-    title: "Synology IP",
-    content: "192.168.1.100:5000",
+    title: "Synology NAS Credentials",
+    content: "",
     timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2),
     pinned: true,
     starred: false,
     category: "clipboard",
-    tags: ["network"],
-    deleted: false
+    tags: ["network", "credentials"],
+    deleted: false,
+    isStructured: true,
+    fields: [
+      { id: "f1", label: "Host", value: "192.168.1.100", type: "text", icon: "text" },
+      { id: "f2", label: "Port", value: "5000", type: "text", icon: "text" },
+      { id: "f3", label: "Username", value: "admin", type: "text", icon: "text" },
+      { id: "f4", label: "Password", value: "••••••••", type: "password", icon: "password" },
+      { id: "f5", label: "API Key", value: "sk-xxxxx-xxxxx", type: "api_key", icon: "api_key" },
+    ]
   },
   {
     id: "5",
@@ -135,52 +197,73 @@ const initialClips: ClipItem[] = [
     starred: false,
     category: "snippets",
     tags: ["sql", "database"],
-    deleted: false
+    deleted: false,
+    isStructured: false,
+    fields: []
   },
   {
-    id: "6",
-    title: "Backup Reminder",
-    content: "Remember to backup the Synology before updating DSM to version 7.2",
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24),
-    pinned: false,
+    id: "p1",
+    title: "Summarize Content",
+    content: "You are a helpful assistant. Summarize the following content in a clear, concise manner. Focus on key points and actionable items.\n\n{{content}}",
+    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 3),
+    pinned: true,
     starred: false,
-    category: "notes",
-    tags: [],
-    deleted: false
+    category: "prompts",
+    tags: ["ai", "summary"],
+    deleted: false,
+    isStructured: false,
+    fields: []
   },
   {
-    id: "7",
-    title: "Old config",
-    content: "{ \"debug\": true, \"port\": 3000 }",
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 48),
+    id: "p2",
+    title: "Code Review",
+    content: "Review the following code for bugs, security issues, and best practices. Provide specific suggestions for improvement.\n\n{{code}}",
+    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 4),
+    pinned: false,
+    starred: true,
+    category: "prompts",
+    tags: ["ai", "code"],
+    deleted: false,
+    isStructured: false,
+    fields: []
+  },
+  {
+    id: "p3",
+    title: "Email Writer",
+    content: "Write a professional email based on the following context. Keep it concise and friendly.\n\nContext: {{context}}\nTone: {{tone}}",
+    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 6),
     pinned: false,
     starred: false,
-    category: "clipboard",
-    tags: [],
-    deleted: true
-  }
+    category: "prompts",
+    tags: ["ai", "email"],
+    deleted: false,
+    isStructured: false,
+    fields: []
+  },
 ];
 
 const defaultHotkeys: HotkeyConfig[] = [
   { id: "1", action: "Show/Hide App", keys: "ctrl+shift+e", enabled: true },
   { id: "2", action: "Notes from Clipboard", keys: "ctrl+shift+p", enabled: true },
-  { id: "3", action: "Save from Clipboard", keys: "", enabled: false },
-  { id: "4", action: "Toggle Fullscreen Mode", keys: "ctrl+1", enabled: true },
-  { id: "5", action: "Toggle Comfortable Mode", keys: "ctrl+2", enabled: true },
-  { id: "6", action: "Toggle Compact Mode", keys: "ctrl+3", enabled: true },
-  { id: "7", action: "Next Tag", keys: "ctrl+down", enabled: true },
-  { id: "8", action: "Previous Tag", keys: "ctrl+up", enabled: true },
-  { id: "9", action: "Next Note", keys: "down", enabled: true },
-  { id: "10", action: "Previous Note", keys: "up", enabled: true },
-  { id: "11", action: "New Note", keys: "ctrl+n", enabled: true },
-  { id: "12", action: "Save Note", keys: "ctrl+s", enabled: true },
-  { id: "13", action: "Delete Note", keys: "ctrl+del", enabled: true },
-  { id: "14", action: "Copy Note", keys: "ctrl+c", enabled: true },
-  { id: "15", action: "Search Notes", keys: "ctrl+f", enabled: true },
-  { id: "16", action: "AI Assist", keys: "ctrl+space", enabled: true },
+  { id: "3", action: "Toggle AI Chat", keys: "ctrl+space", enabled: true },
+  { id: "4", action: "New Note", keys: "ctrl+n", enabled: true },
+  { id: "5", action: "Save Note", keys: "ctrl+s", enabled: true },
+  { id: "6", action: "Delete Note", keys: "ctrl+del", enabled: true },
+  { id: "7", action: "Search Notes", keys: "ctrl+f", enabled: true },
+  { id: "8", action: "Next Note", keys: "down", enabled: true },
+  { id: "9", action: "Previous Note", keys: "up", enabled: true },
 ];
 
-type SidebarCategory = "notes" | "all" | "starred" | "untagged" | "clipboard" | "snippets" | "tags" | "recycle";
+const aiWorkflows: AIWorkflow[] = [
+  { id: "w1", command: "/summarize", name: "Summarize", prompt: "Summarize this content concisely", icon: FileText },
+  { id: "w2", command: "/improve", name: "Improve Writing", prompt: "Improve the writing quality of this text", icon: Sparkles },
+  { id: "w3", command: "/tags", name: "Suggest Tags", prompt: "Suggest relevant tags for this content", icon: Tag },
+  { id: "w4", command: "/code", name: "Code Review", prompt: "Review this code for issues", icon: Code },
+  { id: "w5", command: "/email", name: "Draft Email", prompt: "Draft a professional email", icon: Mail },
+  { id: "w6", command: "/ideas", name: "Brainstorm", prompt: "Generate ideas related to this topic", icon: Lightbulb },
+];
+
+type SidebarCategory = "notes" | "all" | "starred" | "untagged" | "clipboard" | "snippets" | "prompts" | "tags" | "recycle";
 
 function formatTimeAgo(date: Date): string {
   const now = new Date();
@@ -211,15 +294,26 @@ export default function ClipboardPage() {
   const [selectedClip, setSelectedClip] = useState<ClipItem | null>(null);
   const [editingContent, setEditingContent] = useState("");
   const [editingTitle, setEditingTitle] = useState("");
+  const [editingFields, setEditingFields] = useState<StructuredField[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [tagsExpanded, setTagsExpanded] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showHotkeys, setShowHotkeys] = useState(false);
-  const [showAI, setShowAI] = useState(false);
+  const [showAIChat, setShowAIChat] = useState(false);
   const [hotkeys, setHotkeys] = useState<HotkeyConfig[]>(defaultHotkeys);
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
-  const [aiMessages, setAiMessages] = useState<{role: "user" | "assistant", content: string}[]>([]);
+  const [aiMessages, setAiMessages] = useState<{role: "user" | "assistant", content: string}[]>([
+    { role: "assistant", content: "Hi! I'm your AI assistant. I can help you work with your notes and clipboard. Try typing /summarize to see available workflows, or just ask me anything!" }
+  ]);
+  const [systemPrompt, setSystemPrompt] = useState("You are a helpful assistant that helps organize and manage clipboard content and notes. Be concise and helpful.");
+  const [showSystemPrompt, setShowSystemPrompt] = useState(false);
+  const [showWorkflowMenu, setShowWorkflowMenu] = useState(false);
+  const [filteredWorkflows, setFilteredWorkflows] = useState<AIWorkflow[]>([]);
+  const [showAddField, setShowAddField] = useState(false);
+  const [newFieldLabel, setNewFieldLabel] = useState("");
+  const [newFieldType, setNewFieldType] = useState<StructuredField["type"]>("text");
+  const inputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   const allTags = Array.from(new Set(clips.flatMap(c => c.tags))).filter(Boolean);
@@ -241,6 +335,8 @@ export default function ClipboardPage() {
         return matchesSearch && clip.category === "clipboard" && !clip.deleted;
       case "snippets":
         return matchesSearch && clip.category === "snippets" && !clip.deleted;
+      case "prompts":
+        return matchesSearch && clip.category === "prompts" && !clip.deleted;
       case "recycle":
         return matchesSearch && clip.deleted;
       default:
@@ -260,23 +356,33 @@ export default function ClipboardPage() {
     if (selectedClip) {
       setEditingContent(selectedClip.content);
       setEditingTitle(selectedClip.title);
+      setEditingFields(selectedClip.fields);
     }
   }, [selectedClip]);
 
+  useEffect(() => {
+    if (aiPrompt.startsWith("/")) {
+      const cmd = aiPrompt.toLowerCase();
+      const matches = aiWorkflows.filter(w => w.command.startsWith(cmd));
+      setFilteredWorkflows(matches);
+      setShowWorkflowMenu(matches.length > 0);
+    } else {
+      setShowWorkflowMenu(false);
+    }
+  }, [aiPrompt]);
+
   const handleCopy = async (clip: ClipItem) => {
+    let textToCopy = clip.content;
+    if (clip.isStructured && clip.fields.length > 0) {
+      textToCopy = clip.fields.map(f => `${f.label}: ${f.value}`).join("\n");
+    }
     try {
-      await navigator.clipboard.writeText(clip.content);
+      await navigator.clipboard.writeText(textToCopy);
       setCopiedId(clip.id);
-      toast({
-        title: "Copied",
-        description: "Content copied to clipboard",
-      });
+      toast({ title: "Copied" });
       setTimeout(() => setCopiedId(null), 2000);
     } catch (err) {
-      toast({
-        title: "Failed to copy",
-        variant: "destructive",
-      });
+      toast({ title: "Failed to copy", variant: "destructive" });
     }
   };
 
@@ -284,10 +390,10 @@ export default function ClipboardPage() {
     if (!selectedClip) return;
     setClips(clips.map(clip => 
       clip.id === selectedClip.id 
-        ? { ...clip, content: editingContent, title: editingTitle, timestamp: new Date() }
+        ? { ...clip, content: editingContent, title: editingTitle, fields: editingFields, timestamp: new Date() }
         : clip
     ));
-    setSelectedClip({ ...selectedClip, content: editingContent, title: editingTitle });
+    setSelectedClip({ ...selectedClip, content: editingContent, title: editingTitle, fields: editingFields });
     toast({ title: "Saved" });
   };
 
@@ -324,26 +430,103 @@ export default function ClipboardPage() {
     ));
   };
 
-  const handleNewNote = () => {
+  const handleNewNote = (category: ClipItem["category"] = "notes", isStructured = false) => {
     const newClip: ClipItem = {
       id: Date.now().toString(),
-      title: "Untitled Note",
+      title: category === "prompts" ? "New Prompt" : isStructured ? "New Structured Note" : "Untitled Note",
       content: "",
       timestamp: new Date(),
       pinned: false,
       starred: false,
-      category: "notes",
+      category,
       tags: [],
-      deleted: false
+      deleted: false,
+      isStructured,
+      fields: isStructured ? [
+        { id: "f1", label: "Field 1", value: "", type: "text", icon: "text" }
+      ] : []
     };
     setClips([newClip, ...clips]);
     setSelectedClip(newClip);
-    setEditingTitle("Untitled Note");
+    setEditingTitle(newClip.title);
     setEditingContent("");
+    setEditingFields(newClip.fields);
+    setShowAIChat(false);
+  };
+
+  const handleAddField = () => {
+    if (!newFieldLabel.trim()) return;
+    const newField: StructuredField = {
+      id: Date.now().toString(),
+      label: newFieldLabel,
+      value: "",
+      type: newFieldType,
+      icon: newFieldType
+    };
+    setEditingFields([...editingFields, newField]);
+    setNewFieldLabel("");
+    setNewFieldType("text");
+    setShowAddField(false);
+  };
+
+  const handleRemoveField = (fieldId: string) => {
+    setEditingFields(editingFields.filter(f => f.id !== fieldId));
+  };
+
+  const handleUpdateField = (fieldId: string, value: string) => {
+    setEditingFields(editingFields.map(f => 
+      f.id === fieldId ? { ...f, value } : f
+    ));
+  };
+
+  const handleSelectWorkflow = (workflow: AIWorkflow) => {
+    setAiPrompt("");
+    setShowWorkflowMenu(false);
+    
+    const context = selectedClip ? `\n\nContext from "${selectedClip.title}":\n${selectedClip.content}` : "";
+    const fullPrompt = workflow.prompt + context;
+    
+    setAiMessages([...aiMessages, { role: "user", content: `${workflow.command} - ${workflow.name}` }]);
+    setAiLoading(true);
+    
+    setTimeout(() => {
+      let response = "";
+      switch (workflow.id) {
+        case "w1":
+          response = selectedClip 
+            ? `Here's a summary of "${selectedClip.title}":\n\n• Key points extracted from your note\n• Main action items identified\n• Core concepts highlighted for quick reference`
+            : "Please select a note first, then I can summarize it for you.";
+          break;
+        case "w2":
+          response = "I've analyzed the text. Here are my suggestions:\n\n1. Consider breaking long sentences into shorter ones\n2. Use more active voice\n3. Add transition words between paragraphs\n\nWould you like me to rewrite it?";
+          break;
+        case "w3":
+          response = "Based on the content, I suggest these tags:\n\n#documentation #reference #important\n\nWould you like me to apply them?";
+          break;
+        case "w4":
+          response = "Code review complete:\n\n✅ Syntax looks good\n⚠️ Consider adding error handling\n💡 Variable naming could be more descriptive\n\nWant me to suggest specific improvements?";
+          break;
+        case "w5":
+          response = "I can help draft an email. Please provide:\n\n1. Who is the recipient?\n2. What's the main purpose?\n3. What tone? (formal/casual)\n\nOr just describe what you need!";
+          break;
+        case "w6":
+          response = "Here are some ideas to brainstorm:\n\n💡 Expand on the core concept\n💡 Consider alternative approaches\n💡 Look for connections to other projects\n💡 What problems does this solve?\n\nWhat direction interests you most?";
+          break;
+        default:
+          response = "Workflow executed. How can I help you further?";
+      }
+      setAiMessages(prev => [...prev, { role: "assistant", content: response }]);
+      setAiLoading(false);
+    }, 1200);
   };
 
   const handleAISubmit = () => {
     if (!aiPrompt.trim()) return;
+    
+    if (showWorkflowMenu && filteredWorkflows.length > 0) {
+      handleSelectWorkflow(filteredWorkflows[0]);
+      return;
+    }
     
     const userMessage = aiPrompt;
     setAiMessages([...aiMessages, { role: "user", content: userMessage }]);
@@ -352,19 +535,24 @@ export default function ClipboardPage() {
 
     setTimeout(() => {
       let response = "";
-      if (userMessage.toLowerCase().includes("summarize") && selectedClip) {
-        response = `Here's a summary of "${selectedClip.title}":\n\nThis note contains key information about ${selectedClip.tags.length > 0 ? selectedClip.tags.join(", ") : "your project"}. The main points are captured in a concise format for quick reference.`;
-      } else if (userMessage.toLowerCase().includes("improve") || userMessage.toLowerCase().includes("rewrite")) {
-        response = "I'd suggest reorganizing the content with clear headings and bullet points for better readability. Would you like me to apply these changes?";
-      } else if (userMessage.toLowerCase().includes("tag") || userMessage.toLowerCase().includes("categorize")) {
-        response = "Based on the content, I'd suggest these tags: #work, #reference, #important. Would you like me to add them?";
+      const lowerMsg = userMessage.toLowerCase();
+      
+      if (lowerMsg.includes("list") && (lowerMsg.includes("note") || lowerMsg.includes("clip"))) {
+        const noteList = clips.filter(c => !c.deleted).slice(0, 5).map(c => `• ${c.title}`).join("\n");
+        response = `Here are your recent items:\n\n${noteList}\n\nWould you like me to do something with any of these?`;
+      } else if (lowerMsg.includes("find") || lowerMsg.includes("search")) {
+        response = `I can search through your ${clips.filter(c => !c.deleted).length} items. What are you looking for specifically?`;
+      } else if (lowerMsg.includes("help")) {
+        response = "I can help you with:\n\n• /summarize - Summarize notes\n• /improve - Improve writing\n• /tags - Suggest tags\n• /code - Code review\n• /email - Draft emails\n• /ideas - Brainstorm\n\nOr just ask me anything about your notes!";
+      } else if (selectedClip) {
+        response = `I see you have "${selectedClip.title}" selected. I can help you:\n\n• Summarize it\n• Improve the writing\n• Suggest tags\n• Find related items\n\nWhat would you like me to do?`;
       } else {
-        response = "I can help you with:\n• Summarizing notes\n• Improving writing\n• Suggesting tags\n• Organizing content\n• Finding related clips\n\nWhat would you like me to do?";
+        response = "I'm ready to help! You can:\n\n• Select a note and ask me to work with it\n• Use /commands for quick workflows\n• Ask me to find or organize your content\n\nWhat would you like to do?";
       }
       
       setAiMessages(prev => [...prev, { role: "assistant", content: response }]);
       setAiLoading(false);
-    }, 1500);
+    }, 1000);
   };
 
   const getCategoryCount = (cat: SidebarCategory): number => {
@@ -376,6 +564,7 @@ export default function ClipboardPage() {
         case "untagged": return clip.tags.length === 0 && !clip.deleted;
         case "clipboard": return clip.category === "clipboard" && !clip.deleted;
         case "snippets": return clip.category === "snippets" && !clip.deleted;
+        case "prompts": return clip.category === "prompts" && !clip.deleted;
         case "recycle": return clip.deleted;
         default: return false;
       }
@@ -389,7 +578,13 @@ export default function ClipboardPage() {
     { id: "untagged", icon: Archive, label: "Untagged" },
     { id: "clipboard", icon: Clipboard, label: "Clipboard" },
     { id: "snippets", icon: Code, label: "Snippets" },
+    { id: "prompts", icon: MessageSquare, label: "Prompts" },
   ];
+
+  const getFieldIcon = (type: StructuredField["type"]) => {
+    const Icon = fieldIcons[type] || FileText;
+    return <Icon className="w-4 h-4 text-muted-foreground" />;
+  };
 
   return (
     <div className="h-screen bg-background flex overflow-hidden">
@@ -404,16 +599,59 @@ export default function ClipboardPage() {
           </div>
         </div>
 
+        {/* AI Chat Button */}
         <div className="p-2">
           <Button 
-            onClick={handleNewNote}
-            className="w-full justify-start gap-2 h-8 text-sm"
+            onClick={() => {
+              setShowAIChat(true);
+              setSelectedClip(null);
+            }}
+            variant={showAIChat ? "default" : "outline"}
+            className={cn(
+              "w-full justify-start gap-2 h-9 text-sm",
+              showAIChat && "glow-primary"
+            )}
             size="sm"
-            data-testid="button-new-note"
+            data-testid="button-ai-chat"
           >
-            <Plus className="w-4 h-4" />
-            New Note
+            <Bot className="w-4 h-4" />
+            AI Assistant
           </Button>
+        </div>
+
+        <Separator className="mx-2" />
+
+        <div className="p-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button 
+                className="w-full justify-start gap-2 h-8 text-sm"
+                size="sm"
+                data-testid="button-new-note"
+              >
+                <Plus className="w-4 h-4" />
+                New
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-48">
+              <DropdownMenuItem onClick={() => handleNewNote("notes", false)}>
+                <FileText className="w-4 h-4 mr-2" />
+                New Note
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleNewNote("notes", true)}>
+                <CreditCard className="w-4 h-4 mr-2" />
+                Structured Note
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleNewNote("snippets", false)}>
+                <Code className="w-4 h-4 mr-2" />
+                New Snippet
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleNewNote("prompts", false)}>
+                <MessageSquare className="w-4 h-4 mr-2" />
+                New Prompt
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         <ScrollArea className="flex-1">
@@ -421,10 +659,13 @@ export default function ClipboardPage() {
             {sidebarItems.map(item => (
               <button
                 key={item.id}
-                onClick={() => setSelectedCategory(item.id)}
+                onClick={() => {
+                  setSelectedCategory(item.id);
+                  setShowAIChat(false);
+                }}
                 className={cn(
                   "w-full flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors",
-                  selectedCategory === item.id 
+                  selectedCategory === item.id && !showAIChat
                     ? "bg-primary/10 text-primary" 
                     : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                 )}
@@ -463,7 +704,10 @@ export default function ClipboardPage() {
                   {allTags.map(tag => (
                     <button
                       key={tag}
-                      onClick={() => setSelectedCategory(`tag:${tag}` as SidebarCategory)}
+                      onClick={() => {
+                        setSelectedCategory(`tag:${tag}` as SidebarCategory);
+                        setShowAIChat(false);
+                      }}
                       className={cn(
                         "w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors",
                         selectedCategory === `tag:${tag}`
@@ -483,10 +727,13 @@ export default function ClipboardPage() {
             <Separator className="my-2" />
 
             <button
-              onClick={() => setSelectedCategory("recycle")}
+              onClick={() => {
+                setSelectedCategory("recycle");
+                setShowAIChat(false);
+              }}
               className={cn(
                 "w-full flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors",
-                selectedCategory === "recycle"
+                selectedCategory === "recycle" && !showAIChat
                   ? "bg-destructive/10 text-destructive"
                   : "text-muted-foreground hover:bg-muted/50"
               )}
@@ -552,22 +799,28 @@ export default function ClipboardPage() {
                 animate={{ opacity: 1 }}
                 className={cn(
                   "p-3 rounded-lg cursor-pointer transition-all",
-                  selectedClip?.id === clip.id 
+                  selectedClip?.id === clip.id && !showAIChat
                     ? "bg-primary/10 border border-primary/30" 
                     : "hover:bg-muted/50 border border-transparent"
                 )}
-                onClick={() => setSelectedClip(clip)}
+                onClick={() => {
+                  setSelectedClip(clip);
+                  setShowAIChat(false);
+                }}
                 data-testid={`clip-item-${clip.id}`}
               >
                 <div className="flex items-start justify-between gap-2 mb-1">
                   <h3 className="font-medium text-sm truncate flex-1">
                     {clip.pinned && <Pin className="w-3 h-3 inline mr-1 text-primary" />}
+                    {clip.isStructured && <CreditCard className="w-3 h-3 inline mr-1 text-accent" />}
                     {clip.title}
                   </h3>
                   {clip.starred && <Star className="w-3 h-3 text-yellow-500 fill-yellow-500 shrink-0" />}
                 </div>
                 <p className="text-xs text-muted-foreground line-clamp-2 mb-2">
-                  {clip.content}
+                  {clip.isStructured 
+                    ? `${clip.fields.length} fields` 
+                    : clip.content}
                 </p>
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] text-muted-foreground">
@@ -592,9 +845,130 @@ export default function ClipboardPage() {
         </ScrollArea>
       </div>
 
-      {/* Right Panel - Editor */}
+      {/* Right Panel - Editor or AI Chat */}
       <div className="flex-1 flex flex-col">
-        {selectedClip ? (
+        {showAIChat ? (
+          /* AI Chat Interface */
+          <div className="flex-1 flex flex-col">
+            <div className="p-3 border-b border-border/50 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Bot className="w-5 h-5 text-primary" />
+                <h2 className="font-semibold">AI Assistant</h2>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowSystemPrompt(true)}
+                className="text-xs"
+              >
+                <Settings className="w-4 h-4 mr-1" />
+                System Prompt
+              </Button>
+            </div>
+
+            <ScrollArea className="flex-1 p-4">
+              <div className="space-y-4 max-w-2xl mx-auto">
+                {aiMessages.map((msg, i) => (
+                  <motion.div 
+                    key={i}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={cn(
+                      "flex",
+                      msg.role === "user" ? "justify-end" : "justify-start"
+                    )}
+                  >
+                    <div className={cn(
+                      "max-w-[80%] rounded-xl p-3 text-sm",
+                      msg.role === "user" 
+                        ? "bg-primary text-primary-foreground" 
+                        : "bg-muted"
+                    )}>
+                      <pre className="whitespace-pre-wrap font-sans">{msg.content}</pre>
+                    </div>
+                  </motion.div>
+                ))}
+                {aiLoading && (
+                  <div className="flex justify-start">
+                    <div className="bg-muted rounded-xl p-3">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </ScrollArea>
+
+            <div className="p-4 border-t border-border/50">
+              <div className="max-w-2xl mx-auto">
+                {/* Workflow quick buttons */}
+                <div className="flex gap-2 mb-3 overflow-x-auto pb-2">
+                  {aiWorkflows.slice(0, 4).map(wf => (
+                    <Button
+                      key={wf.id}
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0 text-xs"
+                      onClick={() => handleSelectWorkflow(wf)}
+                    >
+                      <wf.icon className="w-3 h-3 mr-1" />
+                      {wf.name}
+                    </Button>
+                  ))}
+                </div>
+
+                <div className="relative">
+                  {/* Workflow menu */}
+                  <AnimatePresence>
+                    {showWorkflowMenu && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 10 }}
+                        className="absolute bottom-full mb-2 left-0 right-0 bg-popover border rounded-lg shadow-lg p-2"
+                      >
+                        {filteredWorkflows.map(wf => (
+                          <button
+                            key={wf.id}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-muted transition-colors"
+                            onClick={() => handleSelectWorkflow(wf)}
+                          >
+                            <wf.icon className="w-4 h-4 text-primary" />
+                            <span className="font-mono text-xs text-muted-foreground">{wf.command}</span>
+                            <span>{wf.name}</span>
+                          </button>
+                        ))}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  <div className="flex gap-2">
+                    <Input
+                      ref={inputRef}
+                      value={aiPrompt}
+                      onChange={(e) => setAiPrompt(e.target.value)}
+                      placeholder="Ask AI or type / for workflows..."
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          handleAISubmit();
+                        }
+                      }}
+                      className="flex-1"
+                      data-testid="input-ai"
+                    />
+                    <Button onClick={handleAISubmit} data-testid="button-ai-send">
+                      <Send className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Type <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">/</kbd> for workflows • Press Enter to send
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : selectedClip ? (
+          /* Note Editor */
           <>
             <div className="p-3 border-b border-border/50 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -608,15 +982,6 @@ export default function ClipboardPage() {
                 />
               </div>
               <div className="flex items-center gap-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setShowAI(true)}
-                  className="h-8 w-8"
-                  data-testid="button-ai"
-                >
-                  <Sparkles className="w-4 h-4" />
-                </Button>
                 <Button
                   variant="ghost"
                   size="icon"
@@ -690,15 +1055,94 @@ export default function ClipboardPage() {
               </Button>
             </div>
 
-            <div className="flex-1 p-4">
-              <Textarea
-                value={editingContent}
-                onChange={(e) => setEditingContent(e.target.value)}
-                className="min-h-full h-full resize-none font-mono text-sm bg-transparent border-none focus:ring-0"
-                placeholder="Tap here to add text"
-                data-testid="textarea-content"
-              />
-            </div>
+            {/* Structured Fields or Content */}
+            {selectedClip.isStructured ? (
+              <ScrollArea className="flex-1 p-4">
+                <div className="space-y-3 max-w-xl">
+                  {editingFields.map((field, index) => (
+                    <div key={field.id} className="flex items-center gap-2 group">
+                      <div className="w-8 flex justify-center">
+                        {getFieldIcon(field.type)}
+                      </div>
+                      <div className="flex-1 grid grid-cols-3 gap-2">
+                        <Input
+                          value={field.label}
+                          onChange={(e) => {
+                            const updated = [...editingFields];
+                            updated[index].label = e.target.value;
+                            setEditingFields(updated);
+                          }}
+                          className="col-span-1 h-9 text-sm font-medium"
+                          placeholder="Label"
+                        />
+                        <Input
+                          type={field.type === "password" ? "password" : "text"}
+                          value={field.value}
+                          onChange={(e) => handleUpdateField(field.id, e.target.value)}
+                          className="col-span-2 h-9 text-sm font-mono"
+                          placeholder="Value"
+                        />
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 opacity-0 group-hover:opacity-100"
+                        onClick={() => handleRemoveField(field.id)}
+                      >
+                        <X className="w-4 h-4 text-destructive" />
+                      </Button>
+                    </div>
+                  ))}
+
+                  {/* Add Field */}
+                  <Popover open={showAddField} onOpenChange={setShowAddField}>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" size="sm" className="mt-4">
+                        <Plus className="w-4 h-4 mr-2" />
+                        Add Field
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-80">
+                      <div className="space-y-3">
+                        <h4 className="font-medium text-sm">Add New Field</h4>
+                        <Input
+                          placeholder="Field label"
+                          value={newFieldLabel}
+                          onChange={(e) => setNewFieldLabel(e.target.value)}
+                        />
+                        <Select value={newFieldType} onValueChange={(v) => setNewFieldType(v as StructuredField["type"])}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="text">Text</SelectItem>
+                            <SelectItem value="password">Password</SelectItem>
+                            <SelectItem value="url">URL</SelectItem>
+                            <SelectItem value="email">Email</SelectItem>
+                            <SelectItem value="phone">Phone</SelectItem>
+                            <SelectItem value="date">Date</SelectItem>
+                            <SelectItem value="api_key">API Key</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Button onClick={handleAddField} size="sm" className="w-full">
+                          Add Field
+                        </Button>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </ScrollArea>
+            ) : (
+              <div className="flex-1 p-4">
+                <Textarea
+                  value={editingContent}
+                  onChange={(e) => setEditingContent(e.target.value)}
+                  className="min-h-full h-full resize-none font-mono text-sm bg-transparent border-none focus:ring-0"
+                  placeholder="Tap here to add text"
+                  data-testid="textarea-content"
+                />
+              </div>
+            )}
 
             <div className="p-3 border-t border-border/50 flex items-center justify-between">
               <span className="text-xs text-muted-foreground">
@@ -726,6 +1170,40 @@ export default function ClipboardPage() {
         )}
       </div>
 
+      {/* System Prompt Dialog */}
+      <Dialog open={showSystemPrompt} onOpenChange={setShowSystemPrompt}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Bot className="w-5 h-5" />
+              AI System Prompt
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-4">
+            <p className="text-sm text-muted-foreground">
+              Configure the system prompt that defines how the AI assistant behaves.
+            </p>
+            <Textarea
+              value={systemPrompt}
+              onChange={(e) => setSystemPrompt(e.target.value)}
+              className="min-h-[200px] font-mono text-sm"
+              placeholder="Enter system prompt..."
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowSystemPrompt(false)}>
+                Cancel
+              </Button>
+              <Button onClick={() => {
+                setShowSystemPrompt(false);
+                toast({ title: "System prompt updated" });
+              }}>
+                Save
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Hotkeys Sheet */}
       <Sheet open={showHotkeys} onOpenChange={setShowHotkeys}>
         <SheetContent className="w-[500px] sm:max-w-[500px]">
@@ -737,8 +1215,8 @@ export default function ClipboardPage() {
           </SheetHeader>
           <div className="mt-4">
             <div className="bg-muted/50 rounded-lg p-4 mb-6 text-sm">
-              <p className="mb-2">With this pane you can configure hotkeys to control the application and the actions within it.</p>
-              <p className="text-muted-foreground">Some hotkeys are set by default. You can either clear them or reassign.</p>
+              <p className="mb-2">Configure hotkeys to control the application and actions within it.</p>
+              <p className="text-muted-foreground">Some hotkeys are set by default. You can clear them or reassign.</p>
             </div>
             <ScrollArea className="h-[calc(100vh-200px)]">
               <div className="space-y-1">
@@ -783,30 +1261,46 @@ export default function ClipboardPage() {
                   <Clipboard className="w-4 h-4" />
                   Clipboard
                 </h3>
-                <div className="bg-muted/50 rounded-lg p-4 mb-4 text-sm">
-                  <p>The rune allows the app to monitor the clipboard and automatically create notes with text from it.</p>
-                </div>
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm font-medium">Notes from Clipboard</p>
-                      <p className="text-xs text-muted-foreground">Automatically create notes from copied text</p>
+                      <p className="text-xs text-muted-foreground">Auto-create notes from copied text</p>
                     </div>
                     <Switch data-testid="switch-notes-from-clipboard" />
                   </div>
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm font-medium">Universal Clipboard</p>
-                      <p className="text-xs text-muted-foreground">Sync clipboard between all devices</p>
+                      <p className="text-xs text-muted-foreground">Sync between all devices</p>
                     </div>
                     <Switch defaultChecked data-testid="switch-universal-clipboard" />
                   </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* AI Settings */}
+              <div>
+                <h3 className="font-medium mb-4 flex items-center gap-2">
+                  <Bot className="w-4 h-4" />
+                  AI Assistant
+                </h3>
+                <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium">Run at Startup</p>
-                      <p className="text-xs text-muted-foreground">Start app when system boots</p>
+                      <p className="text-sm font-medium">Enable AI Features</p>
+                      <p className="text-xs text-muted-foreground">AI-powered summarization and organization</p>
                     </div>
-                    <Switch data-testid="switch-startup" />
+                    <Switch defaultChecked data-testid="switch-ai" />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium">Context-Aware Responses</p>
+                      <p className="text-xs text-muted-foreground">AI considers your selected note</p>
+                    </div>
+                    <Switch defaultChecked />
                   </div>
                 </div>
               </div>
@@ -817,13 +1311,13 @@ export default function ClipboardPage() {
               <div>
                 <h3 className="font-medium mb-4 flex items-center gap-2">
                   <Save className="w-4 h-4" />
-                  Point of No Return
+                  Saving
                 </h3>
-                <div className="bg-muted/50 rounded-lg p-4 mb-4 text-sm">
-                  <p>By default, when you create or edit a note, you must manually click the save button to confirm your changes.</p>
-                </div>
                 <div className="flex items-center justify-between">
-                  <p className="text-sm">Save notes automatically</p>
+                  <div>
+                    <p className="text-sm font-medium">Auto-save notes</p>
+                    <p className="text-xs text-muted-foreground">Save changes automatically</p>
+                  </div>
                   <Switch data-testid="switch-autosave" />
                 </div>
               </div>
@@ -834,111 +1328,18 @@ export default function ClipboardPage() {
               <div>
                 <h3 className="font-medium mb-4 flex items-center gap-2">
                   <Copy className="w-4 h-4" />
-                  Blowing Copy
+                  Behavior
                 </h3>
-                <div className="bg-muted/50 rounded-lg p-4 mb-4 text-sm">
-                  <p>When activated, any action of copying text inside ClipSync will hide the application.</p>
-                </div>
                 <div className="flex items-center justify-between">
-                  <p className="text-sm">Hide on Copy</p>
+                  <div>
+                    <p className="text-sm font-medium">Hide on Copy</p>
+                    <p className="text-xs text-muted-foreground">Hide app after copying content</p>
+                  </div>
                   <Switch data-testid="switch-hide-on-copy" />
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* AI Settings */}
-              <div>
-                <h3 className="font-medium mb-4 flex items-center gap-2">
-                  <Sparkles className="w-4 h-4" />
-                  AI Assistant
-                </h3>
-                <div className="bg-muted/50 rounded-lg p-4 mb-4 text-sm">
-                  <p>Enable AI-powered features for summarizing, organizing, and improving your notes.</p>
-                </div>
-                <div className="flex items-center justify-between">
-                  <p className="text-sm">Enable AI Features</p>
-                  <Switch defaultChecked data-testid="switch-ai" />
                 </div>
               </div>
             </div>
           </ScrollArea>
-        </SheetContent>
-      </Sheet>
-
-      {/* AI Assistant Sheet */}
-      <Sheet open={showAI} onOpenChange={setShowAI}>
-        <SheetContent className="w-[400px] sm:max-w-[400px]">
-          <SheetHeader>
-            <SheetTitle className="flex items-center gap-2">
-              <Bot className="w-5 h-5 text-primary" />
-              AI Assistant
-            </SheetTitle>
-          </SheetHeader>
-          <div className="mt-4 flex flex-col h-[calc(100vh-120px)]">
-            <div className="bg-muted/50 rounded-lg p-3 mb-4 text-sm">
-              <p className="text-muted-foreground">I can help you summarize, improve, and organize your notes. Ask me anything!</p>
-            </div>
-            
-            <ScrollArea className="flex-1 pr-4">
-              <div className="space-y-4">
-                {aiMessages.map((msg, i) => (
-                  <div key={i} className={cn(
-                    "flex",
-                    msg.role === "user" ? "justify-end" : "justify-start"
-                  )}>
-                    <div className={cn(
-                      "max-w-[85%] rounded-lg p-3 text-sm",
-                      msg.role === "user" 
-                        ? "bg-primary text-primary-foreground" 
-                        : "bg-muted"
-                    )}>
-                      {msg.content}
-                    </div>
-                  </div>
-                ))}
-                {aiLoading && (
-                  <div className="flex justify-start">
-                    <div className="bg-muted rounded-lg p-3">
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    </div>
-                  </div>
-                )}
-              </div>
-            </ScrollArea>
-
-            <div className="mt-4 flex gap-2">
-              <Input
-                value={aiPrompt}
-                onChange={(e) => setAiPrompt(e.target.value)}
-                placeholder="Ask AI to help..."
-                onKeyDown={(e) => e.key === "Enter" && handleAISubmit()}
-                data-testid="input-ai"
-              />
-              <Button onClick={handleAISubmit} size="icon" data-testid="button-ai-send">
-                <Send className="w-4 h-4" />
-              </Button>
-            </div>
-
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              <Button variant="outline" size="sm" onClick={() => setAiPrompt("Summarize this note")}>
-                <Wand2 className="w-3 h-3 mr-2" />
-                Summarize
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => setAiPrompt("Suggest tags for this")}>
-                <Tag className="w-3 h-3 mr-2" />
-                Suggest Tags
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => setAiPrompt("Improve the writing")}>
-                <Edit3 className="w-3 h-3 mr-2" />
-                Improve
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => setAiPrompt("Find related clips")}>
-                <Search className="w-3 h-3 mr-2" />
-                Find Related
-              </Button>
-            </div>
-          </div>
         </SheetContent>
       </Sheet>
     </div>
