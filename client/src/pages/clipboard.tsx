@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { SettingsPage } from "@/components/settings-page";
 import { 
   Clipboard, 
   Copy, 
@@ -1244,104 +1245,10 @@ export default function ClipboardPage() {
         </SheetContent>
       </Sheet>
 
-      {/* Settings Sheet */}
-      <Sheet open={showSettings} onOpenChange={setShowSettings}>
-        <SheetContent className="w-[500px] sm:max-w-[500px]">
-          <SheetHeader>
-            <SheetTitle className="flex items-center gap-2">
-              <Settings className="w-5 h-5" />
-              Settings
-            </SheetTitle>
-          </SheetHeader>
-          <ScrollArea className="h-[calc(100vh-100px)] mt-6">
-            <div className="space-y-6">
-              {/* Clipboard Settings */}
-              <div>
-                <h3 className="font-medium mb-4 flex items-center gap-2">
-                  <Clipboard className="w-4 h-4" />
-                  Clipboard
-                </h3>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium">Notes from Clipboard</p>
-                      <p className="text-xs text-muted-foreground">Auto-create notes from copied text</p>
-                    </div>
-                    <Switch data-testid="switch-notes-from-clipboard" />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium">Universal Clipboard</p>
-                      <p className="text-xs text-muted-foreground">Sync between all devices</p>
-                    </div>
-                    <Switch defaultChecked data-testid="switch-universal-clipboard" />
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* AI Settings */}
-              <div>
-                <h3 className="font-medium mb-4 flex items-center gap-2">
-                  <Bot className="w-4 h-4" />
-                  AI Assistant
-                </h3>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium">Enable AI Features</p>
-                      <p className="text-xs text-muted-foreground">AI-powered summarization and organization</p>
-                    </div>
-                    <Switch defaultChecked data-testid="switch-ai" />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium">Context-Aware Responses</p>
-                      <p className="text-xs text-muted-foreground">AI considers your selected note</p>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Auto-save Settings */}
-              <div>
-                <h3 className="font-medium mb-4 flex items-center gap-2">
-                  <Save className="w-4 h-4" />
-                  Saving
-                </h3>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium">Auto-save notes</p>
-                    <p className="text-xs text-muted-foreground">Save changes automatically</p>
-                  </div>
-                  <Switch data-testid="switch-autosave" />
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Hide on Copy */}
-              <div>
-                <h3 className="font-medium mb-4 flex items-center gap-2">
-                  <Copy className="w-4 h-4" />
-                  Behavior
-                </h3>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium">Hide on Copy</p>
-                    <p className="text-xs text-muted-foreground">Hide app after copying content</p>
-                  </div>
-                  <Switch data-testid="switch-hide-on-copy" />
-                </div>
-              </div>
-            </div>
-          </ScrollArea>
-        </SheetContent>
-      </Sheet>
+      {/* Full Settings Page */}
+      {showSettings && (
+        <SettingsPage onClose={() => setShowSettings(false)} />
+      )}
     </div>
   );
 }
