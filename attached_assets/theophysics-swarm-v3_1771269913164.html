@@ -1,0 +1,1197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Theophysics AI Swarm v3.0</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #0a0a0f;
+            color: #e0e0e0;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .app {
+            display: flex;
+            height: 100vh;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 280px;
+            background: #111118;
+            border-right: 1px solid rgba(255,215,0,0.15);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid rgba(255,215,0,0.15);
+        }
+
+        .logo {
+            color: #ffd700;
+            font-size: 1.2rem;
+            font-weight: 700;
+        }
+
+        .version {
+            color: #666;
+            font-size: 0.75rem;
+            margin-top: 4px;
+        }
+
+        .new-chat-btn {
+            width: calc(100% - 40px);
+            margin: 15px 20px;
+            padding: 12px;
+            background: linear-gradient(135deg, #ffd700 0%, #ff8c00 100%);
+            border: none;
+            border-radius: 8px;
+            color: #000;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .new-chat-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 15px rgba(255,215,0,0.3);
+        }
+
+        .section-title {
+            padding: 15px 20px 10px;
+            font-size: 0.7rem;
+            color: #555;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .nav-list {
+            padding: 0 10px;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            border-radius: 6px;
+            color: #888;
+            cursor: pointer;
+            transition: all 0.15s;
+            font-size: 0.9rem;
+        }
+
+        .nav-item:hover {
+            background: rgba(255,215,0,0.1);
+            color: #ccc;
+        }
+
+        .nav-item.active {
+            background: rgba(255,215,0,0.15);
+            color: #ffd700;
+        }
+
+        /* Manager toggles */
+        .manager-toggles {
+            padding: 15px 20px;
+            border-top: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .manager-toggle {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 0;
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+
+        .toggle-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #333;
+            transition: background 0.2s;
+        }
+
+        .manager-toggle.active .toggle-dot {
+            background: #ffd700;
+        }
+
+        .manager-toggle.active {
+            color: #ffd700;
+        }
+
+        /* Status */
+        .status-bar {
+            margin-top: auto;
+            padding: 15px 20px;
+            border-top: 1px solid rgba(255,255,255,0.05);
+            font-size: 0.8rem;
+        }
+
+        .status-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 0;
+        }
+
+        .status-label {
+            color: #555;
+        }
+
+        .status-value {
+            color: #888;
+        }
+
+        .status-value.online {
+            color: #22c55e;
+        }
+
+        /* Main Area */
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 15px 25px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            background: rgba(17,17,24,0.8);
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .header-title {
+            color: #ffd700;
+            font-weight: 600;
+        }
+
+        .tier-badge {
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .tier-badge.t1 {
+            background: rgba(34,197,94,0.2);
+            color: #22c55e;
+        }
+
+        .tier-badge.t2 {
+            background: rgba(255,215,0,0.2);
+            color: #ffd700;
+        }
+
+        .tier-badge.t3 {
+            background: rgba(168,85,247,0.2);
+            color: #a855f7;
+        }
+
+        .settings-btn {
+            background: none;
+            border: none;
+            color: #666;
+            cursor: pointer;
+            padding: 8px;
+            border-radius: 6px;
+            transition: all 0.15s;
+        }
+
+        .settings-btn:hover {
+            background: rgba(255,255,255,0.05);
+            color: #ccc;
+        }
+
+        /* Settings Panel */
+        .settings-panel {
+            display: none;
+            padding: 20px 25px;
+            background: rgba(17,17,24,0.95);
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .settings-panel.open {
+            display: block;
+        }
+
+        .settings-row {
+            display: flex;
+            gap: 40px;
+            align-items: flex-start;
+        }
+
+        .setting-group {
+            flex: 1;
+        }
+
+        .setting-label {
+            color: #888;
+            font-size: 0.8rem;
+            margin-bottom: 10px;
+        }
+
+        .setting-label span {
+            color: #ffd700;
+            font-weight: 600;
+        }
+
+        /* Slider */
+        input[type="range"] {
+            width: 100%;
+            height: 6px;
+            -webkit-appearance: none;
+            background: rgba(255,255,255,0.1);
+            border-radius: 3px;
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 18px;
+            height: 18px;
+            background: #ffd700;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        /* Tier buttons */
+        .tier-buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        .tier-btn {
+            flex: 1;
+            padding: 12px;
+            background: rgba(255,255,255,0.03);
+            border: 2px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            color: #666;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: center;
+        }
+
+        .tier-btn:hover {
+            background: rgba(255,255,255,0.06);
+        }
+
+        .tier-btn.active {
+            border-color: var(--tier-color);
+            color: var(--tier-color);
+        }
+
+        .tier-btn[data-tier="1"] {
+            --tier-color: #22c55e;
+        }
+
+        .tier-btn[data-tier="2"] {
+            --tier-color: #ffd700;
+        }
+
+        .tier-btn[data-tier="3"] {
+            --tier-color: #a855f7;
+        }
+
+        .tier-name {
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .tier-conf {
+            font-size: 0.7rem;
+            opacity: 0.7;
+            margin-top: 4px;
+        }
+
+        /* Upload Panel */
+        .upload-panel {
+            display: none;
+            padding: 20px 25px;
+            background: rgba(17,17,24,0.95);
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .upload-panel.open {
+            display: block;
+        }
+
+        .upload-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .upload-header h3 {
+            color: #fff;
+            font-size: 1rem;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            color: #666;
+            cursor: pointer;
+            font-size: 1.2rem;
+        }
+
+        .upload-content {
+            display: flex;
+            gap: 20px;
+        }
+
+        .upload-zone {
+            flex: 1;
+            border: 2px dashed rgba(255,215,0,0.3);
+            border-radius: 10px;
+            padding: 25px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .upload-zone:hover {
+            border-color: #ffd700;
+            background: rgba(255,215,0,0.05);
+        }
+
+        .upload-icon {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+
+        .upload-text {
+            color: #888;
+            font-size: 0.85rem;
+        }
+
+        .upload-text strong {
+            color: #ffd700;
+        }
+
+        .project-select {
+            width: 100%;
+            padding: 10px;
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 6px;
+            color: #fff;
+            margin-top: 15px;
+        }
+
+        .project-files {
+            flex: 1;
+        }
+
+        .project-files h4 {
+            color: #888;
+            font-size: 0.8rem;
+            margin-bottom: 10px;
+        }
+
+        .file-list {
+            max-height: 100px;
+            overflow-y: auto;
+        }
+
+        .file-item {
+            padding: 6px 0;
+            color: #666;
+            font-size: 0.85rem;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+        }
+
+        /* Chat Area */
+        .chat-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 25px;
+        }
+
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #444;
+        }
+
+        .empty-icon {
+            font-size: 5rem;
+            margin-bottom: 20px;
+            opacity: 0.3;
+        }
+
+        .empty-title {
+            font-size: 1.3rem;
+            color: #666;
+            margin-bottom: 10px;
+        }
+
+        .empty-desc {
+            color: #555;
+            font-size: 0.9rem;
+        }
+
+        /* Messages */
+        .message {
+            margin-bottom: 20px;
+            max-width: 85%;
+        }
+
+        .message.user {
+            margin-left: auto;
+        }
+
+        .message-bubble {
+            padding: 15px 20px;
+            border-radius: 12px;
+            line-height: 1.6;
+        }
+
+        .message.user .message-bubble {
+            background: rgba(255,215,0,0.15);
+            color: #ffd700;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.assistant .message-bubble {
+            background: rgba(255,255,255,0.05);
+            color: #ccc;
+            border-bottom-left-radius: 4px;
+        }
+
+        .message-meta {
+            font-size: 0.7rem;
+            color: #555;
+            margin-top: 5px;
+            padding: 0 5px;
+        }
+
+        /* Analysis sections */
+        .analysis-section {
+            margin: 15px 0;
+            padding: 15px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+            border-left: 3px solid #ffd700;
+        }
+
+        .analysis-section.dispatch {
+            border-left-color: #8888ff;
+        }
+
+        .analysis-section.synthesis {
+            border-left-color: #22c55e;
+        }
+
+        .analysis-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .analysis-title {
+            color: #ffd700;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+
+        .analysis-content {
+            white-space: pre-wrap;
+            font-size: 0.9rem;
+            line-height: 1.7;
+        }
+
+        /* Loading */
+        .loading {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #ffd700;
+            padding: 20px;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255,215,0,0.2);
+            border-top-color: #ffd700;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Input Area */
+        .input-area {
+            padding: 20px 25px;
+            border-top: 1px solid rgba(255,255,255,0.05);
+            background: rgba(17,17,24,0.8);
+        }
+
+        .input-row {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+        }
+
+        .input-actions {
+            display: flex;
+            gap: 5px;
+        }
+
+        .input-action-btn {
+            padding: 12px;
+            background: none;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            color: #666;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .input-action-btn:hover {
+            background: rgba(255,255,255,0.05);
+            color: #ccc;
+        }
+
+        .input-wrapper {
+            flex: 1;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .input-wrapper textarea {
+            width: 100%;
+            padding: 15px;
+            background: transparent;
+            border: none;
+            color: #fff;
+            font-size: 0.95rem;
+            resize: none;
+            outline: none;
+            font-family: inherit;
+        }
+
+        .input-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 15px;
+            border-top: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .input-info {
+            color: #555;
+            font-size: 0.75rem;
+        }
+
+        .send-btn {
+            padding: 8px 16px;
+            background: #ffd700;
+            border: none;
+            border-radius: 6px;
+            color: #000;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .send-btn:hover {
+            background: #ffed4a;
+        }
+
+        .send-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">Theophysics Swarm</div>
+                <div class="version">v3.0 • Desktop Edition</div>
+            </div>
+
+            <button class="new-chat-btn" onclick="newChat()">+ New Chat</button>
+
+            <div class="section-title">Navigation</div>
+            <div class="nav-list">
+                <div class="nav-item active" data-view="chat">
+                    <span>💬</span> Chat
+                </div>
+                <div class="nav-item" onclick="showUpload()">
+                    <span>📤</span> Upload Files
+                </div>
+                <div class="nav-item" onclick="loadMemories()">
+                    <span>🧠</span> Memories
+                </div>
+                <div class="nav-item" onclick="loadProjects()">
+                    <span>📁</span> Projects
+                </div>
+            </div>
+
+            <div class="section-title">Active Managers</div>
+            <div class="manager-toggles">
+                <div class="manager-toggle active" data-manager="orchestrator" onclick="toggleManager(this)">
+                    <span class="toggle-dot"></span>
+                    <span>🎯 Orchestrator</span>
+                </div>
+                <div class="manager-toggle active" data-manager="evidence" onclick="toggleManager(this)">
+                    <span class="toggle-dot"></span>
+                    <span>📚 Evidence</span>
+                </div>
+                <div class="manager-toggle active" data-manager="structure" onclick="toggleManager(this)">
+                    <span class="toggle-dot"></span>
+                    <span>🏗️ Structure</span>
+                </div>
+                <div class="manager-toggle" data-manager="execution" onclick="toggleManager(this)">
+                    <span class="toggle-dot"></span>
+                    <span>⚙️ Execution</span>
+                </div>
+            </div>
+
+            <div class="status-bar">
+                <div class="status-row">
+                    <span class="status-label">Status</span>
+                    <span class="status-value" id="connectionStatus">Checking...</span>
+                </div>
+                <div class="status-row">
+                    <span class="status-label">Agents</span>
+                    <span class="status-value" id="agentStatus">-</span>
+                </div>
+                <div class="status-row">
+                    <span class="status-label">Tier</span>
+                    <span class="status-value" id="currentTier">T2 Probable</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main -->
+        <div class="main">
+            <!-- Header -->
+            <div class="header">
+                <div class="header-left">
+                    <span class="header-title">THEOPHYSICS AI SWARM</span>
+                    <span class="tier-badge t2" id="tierBadge">T2 Probable</span>
+                </div>
+                <button class="settings-btn" onclick="toggleSettings()">⚙️ Settings</button>
+            </div>
+
+            <!-- Settings Panel -->
+            <div class="settings-panel" id="settingsPanel">
+                <div class="settings-row">
+                    <div class="setting-group">
+                        <div class="setting-label">Agent Count: <span id="agentCountLabel">4</span></div>
+                        <input type="range" min="1" max="10" value="4" id="agentSlider" oninput="updateAgentCount()">
+                        <div style="display: flex; justify-content: space-between; color: #444; font-size: 0.7rem; margin-top: 5px;">
+                            <span>1</span><span>5</span><span>10</span>
+                        </div>
+                    </div>
+
+                    <div class="setting-group">
+                        <div class="setting-label">Projection Tier</div>
+                        <div class="tier-buttons">
+                            <button class="tier-btn" data-tier="1" onclick="setTier(1)">
+                                <div class="tier-name">T1 Factual</div>
+                                <div class="tier-conf">90-100%</div>
+                            </button>
+                            <button class="tier-btn active" data-tier="2" onclick="setTier(2)">
+                                <div class="tier-name">T2 Probable</div>
+                                <div class="tier-conf">70-89%</div>
+                            </button>
+                            <button class="tier-btn" data-tier="3" onclick="setTier(3)">
+                                <div class="tier-name">T3 Visionary</div>
+                                <div class="tier-conf">40-69%</div>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Upload Panel -->
+            <div class="upload-panel" id="uploadPanel">
+                <div class="upload-header">
+                    <h3>📤 Upload to Project</h3>
+                    <button class="close-btn" onclick="hideUpload()">✕</button>
+                </div>
+                <div class="upload-content">
+                    <div style="flex: 1;">
+                        <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+                            <div class="upload-icon">📁</div>
+                            <div class="upload-text">
+                                <strong>Drop files here</strong> or click to browse<br>
+                                .md, .txt, .json supported
+                            </div>
+                        </div>
+                        <input type="file" id="fileInput" style="display:none" onchange="handleFileSelect(event)" multiple accept=".md,.txt,.json,.csv">
+                        <select class="project-select" id="projectSelect">
+                            <option value="Theophysics">Theophysics</option>
+                            <option value="Logos-Papers">Logos Papers</option>
+                            <option value="Master-Equation">Master Equation</option>
+                            <option value="Evidence-Base">Evidence Base</option>
+                            <option value="Axioms">Axioms</option>
+                            <option value="general">General</option>
+                        </select>
+                    </div>
+                    <div class="project-files">
+                        <h4>Files in <span id="currentProject">Theophysics</span>:</h4>
+                        <div class="file-list" id="projectFileList">
+                            <div class="file-item" style="color: #555; font-style: italic;">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chat Area -->
+            <div class="chat-area" id="chatArea">
+                <div class="empty-state" id="emptyState">
+                    <div class="empty-icon">🧠</div>
+                    <div class="empty-title">Deploy the Swarm</div>
+                    <div class="empty-desc">Paste content or ask a question about the framework</div>
+                    <div style="margin-top: 15px; color: #444; font-size: 0.8rem;">
+                        T2 Probable • 4 agents ready • Ctrl+Enter to send
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="input-area">
+                <div class="input-row">
+                    <div class="input-actions">
+                        <button class="input-action-btn" onclick="showUpload()" title="Upload files">📁</button>
+                        <button class="input-action-btn" onclick="toggleSettings()" title="Settings">⚙️</button>
+                    </div>
+                    <div class="input-wrapper">
+                        <textarea id="messageInput" rows="2" placeholder="Send content to the swarm for analysis..." onkeydown="handleKeydown(event)"></textarea>
+                        <div class="input-footer">
+                            <span class="input-info" id="inputInfo">4 agents • T2 Probable</span>
+                            <button class="send-btn" id="sendBtn" onclick="sendMessage()">
+                                Send ↗
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'https://theophysics-swarm.davidokc28.workers.dev';
+
+        let currentTier = 2;
+        let agentCount = 4;
+        let messages = [];
+        let isLoading = false;
+
+        const TIER_NAMES = {
+            1: 'T1 Factual',
+            2: 'T2 Probable',
+            3: 'T3 Visionary'
+        };
+
+        const TIER_CLASSES = {
+            1: 't1',
+            2: 't2',
+            3: 't3'
+        };
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            checkHealth();
+            setupDragDrop();
+        });
+
+        async function checkHealth() {
+            try {
+                const res = await fetch(`${API_BASE}/health`);
+                const data = await res.json();
+                document.getElementById('connectionStatus').textContent = 'Online';
+                document.getElementById('connectionStatus').classList.add('online');
+                document.getElementById('agentStatus').textContent = data.managers?.length + ' available';
+            } catch (e) {
+                document.getElementById('connectionStatus').textContent = 'Offline';
+                document.getElementById('connectionStatus').style.color = '#ef4444';
+            }
+        }
+
+        function toggleSettings() {
+            document.getElementById('settingsPanel').classList.toggle('open');
+            document.getElementById('uploadPanel').classList.remove('open');
+        }
+
+        function showUpload() {
+            document.getElementById('uploadPanel').classList.add('open');
+            document.getElementById('settingsPanel').classList.remove('open');
+            loadProjectFiles();
+        }
+
+        function hideUpload() {
+            document.getElementById('uploadPanel').classList.remove('open');
+        }
+
+        function updateAgentCount() {
+            agentCount = parseInt(document.getElementById('agentSlider').value);
+            document.getElementById('agentCountLabel').textContent = agentCount;
+            updateInputInfo();
+        }
+
+        function setTier(tier) {
+            currentTier = tier;
+            document.querySelectorAll('.tier-btn').forEach(btn => {
+                btn.classList.toggle('active', parseInt(btn.dataset.tier) === tier);
+            });
+            document.getElementById('tierBadge').textContent = TIER_NAMES[tier];
+            document.getElementById('tierBadge').className = 'tier-badge ' + TIER_CLASSES[tier];
+            document.getElementById('currentTier').textContent = TIER_NAMES[tier];
+            updateInputInfo();
+        }
+
+        function updateInputInfo() {
+            document.getElementById('inputInfo').textContent = `${agentCount} agents • ${TIER_NAMES[currentTier]}`;
+        }
+
+        function toggleManager(el) {
+            el.classList.toggle('active');
+        }
+
+        function getActiveManagers() {
+            return Array.from(document.querySelectorAll('.manager-toggle.active'))
+                .map(el => el.dataset.manager);
+        }
+
+        function handleKeydown(e) {
+            if (e.ctrlKey && e.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        function newChat() {
+            messages = [];
+            document.getElementById('chatArea').innerHTML = `
+                <div class="empty-state" id="emptyState">
+                    <div class="empty-icon">🧠</div>
+                    <div class="empty-title">Deploy the Swarm</div>
+                    <div class="empty-desc">Paste content or ask a question about the framework</div>
+                </div>
+            `;
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const content = input.value.trim();
+            if (!content || isLoading) return;
+
+            const managers = getActiveManagers();
+            if (managers.length === 0) {
+                alert('Please select at least one manager');
+                return;
+            }
+
+            // Clear empty state
+            const emptyState = document.getElementById('emptyState');
+            if (emptyState) emptyState.remove();
+
+            // Add user message
+            addMessage('user', content);
+            input.value = '';
+
+            // Show loading
+            isLoading = true;
+            document.getElementById('sendBtn').disabled = true;
+            const loadingEl = document.createElement('div');
+            loadingEl.className = 'loading';
+            loadingEl.id = 'loadingIndicator';
+            loadingEl.innerHTML = `
+                <div class="spinner"></div>
+                <span>Analyzing with ${TIER_NAMES[currentTier]}...</span>
+            `;
+            document.getElementById('chatArea').appendChild(loadingEl);
+            scrollToBottom();
+
+            try {
+                const res = await fetch(`${API_BASE}/swarm/analyze`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        content,
+                        managers,
+                        agent_count: agentCount,
+                        projection_tier: currentTier,
+                        source: 'desktop-v3'
+                    })
+                });
+
+                const data = await res.json();
+                document.getElementById('loadingIndicator').remove();
+                addAnalysisResponse(data);
+
+            } catch (e) {
+                document.getElementById('loadingIndicator').remove();
+                addMessage('assistant', `Error: ${e.message}`);
+            }
+
+            isLoading = false;
+            document.getElementById('sendBtn').disabled = false;
+        }
+
+        function addMessage(role, content) {
+            const chatArea = document.getElementById('chatArea');
+            const msg = document.createElement('div');
+            msg.className = `message ${role}`;
+            msg.innerHTML = `
+                <div class="message-bubble">${escapeHtml(content)}</div>
+                <div class="message-meta">${new Date().toLocaleTimeString()}</div>
+            `;
+            chatArea.appendChild(msg);
+            scrollToBottom();
+        }
+
+        function addAnalysisResponse(data) {
+            const chatArea = document.getElementById('chatArea');
+            const msg = document.createElement('div');
+            msg.className = 'message assistant';
+
+            let html = '<div class="message-bubble">';
+
+            // Header
+            html += `<div style="margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                <strong style="color: #ffd700;">${data.tier_name || TIER_NAMES[currentTier]}</strong>
+                <span style="color: #555; margin-left: 10px;">${data.agents_used?.length || 0} agents • ${data.duration_ms}ms</span>
+            </div>`;
+
+            // Dispatch
+            if (data.dispatch) {
+                html += `
+                    <div class="analysis-section dispatch">
+                        <div class="analysis-header">
+                            <span class="analysis-title">📋 Dispatch</span>
+                        </div>
+                        <div class="analysis-content">Type: ${data.dispatch.content_type || 'N/A'}
+Topic: ${data.dispatch.primary_topic || 'N/A'}
+Laws: ${JSON.stringify(data.dispatch.related_laws || [])}
+Priority: ${data.dispatch.priority || 'medium'}</div>
+                    </div>
+                `;
+            }
+
+            // Analyses
+            const icons = { orchestrator: '🎯', evidence: '📚', structure: '🏗️', execution: '⚙️' };
+            if (data.analyses) {
+                data.analyses.forEach(analysis => {
+                    html += `
+                        <div class="analysis-section">
+                            <div class="analysis-header">
+                                <span class="analysis-title">${icons[analysis.manager] || '📝'} ${analysis.manager}</span>
+                                ${analysis.tier ? `<span style="color: #666; font-size: 0.75rem;">${analysis.tier}</span>` : ''}
+                            </div>
+                            <div class="analysis-content">${escapeHtml(analysis.analysis || 'No analysis')}</div>
+                        </div>
+                    `;
+                });
+            }
+
+            // Synthesis
+            if (data.synthesis) {
+                html += `
+                    <div class="analysis-section synthesis">
+                        <div class="analysis-header">
+                            <span class="analysis-title" style="color: #22c55e;">🔮 Synthesis</span>
+                        </div>
+                        <div class="analysis-content">${escapeHtml(data.synthesis)}</div>
+                    </div>
+                `;
+            }
+
+            html += '</div>';
+            html += `<div class="message-meta">Session: ${data.session_id?.slice(0,8) || 'N/A'} • ${new Date().toLocaleTimeString()}</div>`;
+
+            msg.innerHTML = html;
+            chatArea.appendChild(msg);
+            scrollToBottom();
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function scrollToBottom() {
+            const chatArea = document.getElementById('chatArea');
+            chatArea.scrollTop = chatArea.scrollHeight;
+        }
+
+        // File Upload
+        function setupDragDrop() {
+            const zone = document.getElementById('uploadZone');
+            zone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                zone.style.borderColor = '#ffd700';
+                zone.style.background = 'rgba(255,215,0,0.1)';
+            });
+            zone.addEventListener('dragleave', () => {
+                zone.style.borderColor = 'rgba(255,215,0,0.3)';
+                zone.style.background = 'transparent';
+            });
+            zone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                zone.style.borderColor = 'rgba(255,215,0,0.3)';
+                zone.style.background = 'transparent';
+                handleFiles(e.dataTransfer.files);
+            });
+        }
+
+        function handleFileSelect(e) {
+            handleFiles(e.target.files);
+        }
+
+        async function handleFiles(files) {
+            const project = document.getElementById('projectSelect').value;
+
+            for (const file of files) {
+                try {
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    formData.append('project', project);
+
+                    const res = await fetch(`${API_BASE}/swarm/upload`, {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    const data = await res.json();
+                    if (data.success) {
+                        addMessage('assistant', `✅ Uploaded **${file.name}** to ${project}\nKey: ${data.key}`);
+                        loadProjectFiles();
+                    } else {
+                        addMessage('assistant', `❌ Failed to upload ${file.name}: ${data.error}`);
+                    }
+                } catch (e) {
+                    addMessage('assistant', `❌ Upload error: ${e.message}`);
+                }
+            }
+        }
+
+        async function loadProjectFiles() {
+            const project = document.getElementById('projectSelect').value;
+            document.getElementById('currentProject').textContent = project;
+
+            try {
+                const res = await fetch(`${API_BASE}/swarm/projects?project=${encodeURIComponent(project)}`);
+                const data = await res.json();
+
+                const list = document.getElementById('projectFileList');
+                if (data.files && data.files.length > 0) {
+                    list.innerHTML = data.files.map(f =>
+                        `<div class="file-item">📄 ${f.name}</div>`
+                    ).join('');
+                } else {
+                    list.innerHTML = '<div class="file-item" style="color: #555; font-style: italic;">No files yet</div>';
+                }
+            } catch (e) {
+                document.getElementById('projectFileList').innerHTML = '<div class="file-item" style="color: #ef4444;">Error loading</div>';
+            }
+        }
+
+        async function loadMemories() {
+            const emptyState = document.getElementById('emptyState');
+            if (emptyState) emptyState.remove();
+
+            addMessage('assistant', 'Loading memories...');
+
+            try {
+                const res = await fetch(`${API_BASE}/swarm/memories`);
+                const data = await res.json();
+
+                let content = `🧠 **SWARM MEMORIES** (${data.count} stored)\n\n`;
+                if (data.memories && data.memories.length > 0) {
+                    data.memories.forEach(m => {
+                        content += `• ${m.key}\n`;
+                    });
+                } else {
+                    content += 'No memories stored yet.';
+                }
+
+                // Replace loading message
+                const lastMsg = document.querySelector('.message.assistant:last-child');
+                if (lastMsg) {
+                    lastMsg.querySelector('.message-bubble').textContent = content;
+                }
+            } catch (e) {
+                addMessage('assistant', `Error loading memories: ${e.message}`);
+            }
+        }
+
+        async function loadProjects() {
+            const emptyState = document.getElementById('emptyState');
+            if (emptyState) emptyState.remove();
+
+            addMessage('assistant', 'Loading projects...');
+
+            try {
+                const res = await fetch(`${API_BASE}/swarm/projects`);
+                const data = await res.json();
+
+                let content = `📁 **PROJECTS**\n\n`;
+                if (data.files && data.files.length > 0) {
+                    const projects = {};
+                    data.files.forEach(f => {
+                        const parts = f.key.split('/');
+                        if (parts[1]) {
+                            if (!projects[parts[1]]) projects[parts[1]] = [];
+                            projects[parts[1]].push(f.name);
+                        }
+                    });
+
+                    Object.entries(projects).forEach(([proj, files]) => {
+                        content += `**${proj}** (${files.length} files)\n`;
+                    });
+                } else {
+                    content += 'No projects yet. Upload files to create one.';
+                }
+
+                const lastMsg = document.querySelector('.message.assistant:last-child');
+                if (lastMsg) {
+                    lastMsg.querySelector('.message-bubble').textContent = content;
+                }
+            } catch (e) {
+                addMessage('assistant', `Error loading projects: ${e.message}`);
+            }
+        }
+
+        // Update project selector
+        document.getElementById('projectSelect').addEventListener('change', loadProjectFiles);
+    </script>
+</body>
+</html>
