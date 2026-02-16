@@ -50,6 +50,8 @@ import {
   ExternalLink,
   FileUp,
   Palette,
+  Download,
+  Import,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -701,13 +703,16 @@ export default function ClipboardPage() {
   return (
     <div className="h-screen bg-background flex overflow-hidden">
       {/* Left Sidebar */}
-      <aside className="w-56 border-r border-border/50 bg-sidebar flex flex-col">
+      <aside className="w-56 border-r border-border/50 sidebar-gradient flex flex-col">
         <div className="p-3 border-b border-border/50">
-          <div className="flex items-center gap-2 px-2">
-            <div className="w-7 h-7 rounded-md bg-primary/20 flex items-center justify-center">
+          <div className="flex items-center gap-2.5 px-2">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary/30 to-accent/20 flex items-center justify-center glow-primary">
               <Clipboard className="w-4 h-4 text-primary" />
             </div>
-            <span className="font-semibold text-sm">ClipSync</span>
+            <div>
+              <span className="font-semibold text-sm tracking-tight">ClipSync</span>
+              <span className="block text-[10px] text-muted-foreground -mt-0.5">Clipboard Manager</span>
+            </div>
           </div>
         </div>
 
@@ -937,6 +942,43 @@ export default function ClipboardPage() {
         </ScrollArea>
 
         <div className="p-2 border-t border-border/50 space-y-1">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm text-muted-foreground hover:bg-muted/50"
+                data-testid="button-export-import"
+              >
+                <Download className="w-4 h-4" />
+                Export / Import
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-52">
+              <DropdownMenuItem onClick={() => {
+                window.open("/api/export/all", "_blank");
+              }}>
+                <Download className="w-4 h-4 mr-2" />
+                Export All (JSON)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => {
+                window.open("/api/export/prompts", "_blank");
+              }}>
+                <MessageSquare className="w-4 h-4 mr-2" />
+                Export Prompts
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => {
+                window.open("/api/export/autohotkey", "_blank");
+              }}>
+                <Keyboard className="w-4 h-4 mr-2" />
+                Export for AutoHotkey
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => {
+                window.open("/api/export/bookmarks", "_blank");
+              }}>
+                <BookmarkIcon className="w-4 h-4 mr-2" />
+                Export Bookmarks
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <button
             onClick={() => setShowHotkeys(true)}
             className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm text-muted-foreground hover:bg-muted/50"
@@ -1015,15 +1057,15 @@ export default function ClipboardPage() {
                 {filteredBookmarks.map(bm => (
                   <motion.div
                     key={bm.id}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="p-4 rounded-lg border bg-card hover:bg-card/80 transition-colors group"
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="p-4 rounded-xl border bg-card card-hover group"
                     data-testid={`bookmark-card-${bm.id}`}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div className="w-8 h-8 rounded bg-muted flex items-center justify-center shrink-0">
-                          <Globe className="w-4 h-4 text-muted-foreground" />
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary/15 to-accent/10 flex items-center justify-center shrink-0">
+                          <Globe className="w-4 h-4 text-primary/80" />
                         </div>
                         <div className="min-w-0">
                           <h4 className="font-medium text-sm truncate" data-testid={`bm-title-${bm.id}`}>{bm.title}</h4>
@@ -1118,18 +1160,19 @@ export default function ClipboardPage() {
 
             <div
               className={cn(
-                "m-3 p-6 border-2 border-dashed rounded-lg text-center transition-colors",
-                dragOver ? "border-primary bg-primary/5" : "border-border"
+                "drag-zone m-3 p-6 text-center",
+                dragOver && "active"
               )}
               onDragOver={e => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}
               onDrop={handleFileDrop}
               data-testid="upload-drop-zone"
             >
-              <FileUp className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+              <FileUp className={cn("w-8 h-8 mx-auto mb-2 transition-colors", dragOver ? "text-primary" : "text-muted-foreground")} />
               <p className="text-sm text-muted-foreground">
                 {dragOver ? "Drop files here" : "Drag & drop text files"}
               </p>
+              <p className="text-[10px] text-muted-foreground/60 mt-1">.txt .md .json .csv .log</p>
             </div>
 
             <ScrollArea className="flex-1">
@@ -1222,14 +1265,14 @@ export default function ClipboardPage() {
           {/* Middle Panel - Clip List */}
           <div className="w-80 border-r border-border/50 flex flex-col bg-card/30">
             <div className="p-3 border-b border-border/50">
-              <div className="relative">
+              <div className="relative input-glow rounded-lg">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
                   type="search"
                   placeholder="Search your notes..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="pl-9 h-9 bg-background/50"
+                  className="pl-9 h-9 bg-background/60 border-border/50"
                   data-testid="input-search"
                 />
               </div>
@@ -1248,13 +1291,13 @@ export default function ClipboardPage() {
                     {dbPrompts.map(prompt => (
                       <motion.div
                         key={`prompt-${prompt.id}`}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        className="p-3 rounded-lg border bg-card hover:bg-card/80 transition-all cursor-pointer"
+                        initial={{ opacity: 0, y: 4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="prompt-card p-3.5 cursor-pointer"
                         data-testid={`prompt-card-${prompt.id}`}
                       >
-                        <div className="flex items-start gap-2">
-                          <div className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ backgroundColor: prompt.color }} />
+                        <div className="flex items-start gap-2.5">
+                          <div className="w-2.5 h-2.5 rounded-full mt-1.5 shrink-0 ring-2 ring-offset-1 ring-offset-card" style={{ backgroundColor: prompt.color, boxShadow: `0 0 8px ${prompt.color}40` }} />
                           <div className="min-w-0 flex-1">
                             <h4 className="font-medium text-sm" data-testid={`prompt-name-${prompt.id}`}>{prompt.name}</h4>
                             {prompt.shortDesc && (
@@ -1296,13 +1339,13 @@ export default function ClipboardPage() {
                 {filteredClips.map((clip) => (
                   <motion.div
                     key={clip.id}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
+                    initial={{ opacity: 0, x: -4 }}
+                    animate={{ opacity: 1, x: 0 }}
                     className={cn(
-                      "p-3 rounded-lg cursor-pointer transition-all",
+                      "p-3 rounded-lg cursor-pointer clip-item",
                       selectedClipId === clip.id && !showAIChat
-                        ? "bg-primary/10 border border-primary/30"
-                        : "hover:bg-muted/50 border border-transparent"
+                        ? "active bg-primary/8 border border-primary/20"
+                        : "border border-transparent"
                     )}
                     onClick={() => {
                       setSelectedClipId(clip.id);
@@ -1327,11 +1370,15 @@ export default function ClipboardPage() {
                       <span className="text-[10px] text-muted-foreground">
                         {formatTimeAgo(clip.createdAt)}
                       </span>
-                      {(clip.tags || []).slice(0, 2).map(tag => (
-                        <Badge key={tag} variant="secondary" className="text-[10px] h-4 px-1">
-                          {tag}
-                        </Badge>
-                      ))}
+                      {(clip.tags || []).slice(0, 2).map(tag => {
+                        const tagObj = apiTags.find(t => t.name === tag);
+                        return (
+                          <span key={tag} className="tag-pill text-[10px]">
+                            {tagObj && <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: tagObj.color }} />}
+                            {tag}
+                          </span>
+                        );
+                      })}
                     </div>
                   </motion.div>
                 ))}
@@ -1379,12 +1426,12 @@ export default function ClipboardPage() {
                         )}
                       >
                         <div className={cn(
-                          "max-w-[80%] rounded-xl p-3 text-sm",
+                          "max-w-[80%] p-3.5 text-sm shadow-sm",
                           msg.role === "user"
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted"
+                            ? "ai-bubble-user"
+                            : "ai-bubble-assistant"
                         )}>
-                          <pre className="whitespace-pre-wrap font-sans">{msg.content}</pre>
+                          <pre className="whitespace-pre-wrap font-sans leading-relaxed">{msg.content}</pre>
                         </div>
                       </motion.div>
                     ))}
@@ -1715,9 +1762,15 @@ export default function ClipboardPage() {
             ) : (
               <div className="flex-1 flex items-center justify-center">
                 <div className="text-center">
-                  <FileText className="w-12 h-12 mx-auto mb-4 text-muted-foreground/30" />
+                  <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-primary/10 to-accent/10 flex items-center justify-center">
+                    <FileText className="w-8 h-8 text-muted-foreground/40" />
+                  </div>
                   <h3 className="font-medium mb-1">No note selected</h3>
-                  <p className="text-sm text-muted-foreground">Select a note to view or edit</p>
+                  <p className="text-sm text-muted-foreground mb-4">Select a note to view or edit</p>
+                  <Button variant="outline" size="sm" onClick={() => handleNewNote("notes")}>
+                    <Plus className="w-4 h-4 mr-1" />
+                    Create a note
+                  </Button>
                 </div>
               </div>
             )}

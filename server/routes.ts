@@ -152,5 +152,89 @@ export async function registerRoutes(
     res.status(204).end();
   });
 
+  // === EXPORT/IMPORT FOR AUTOHOTKEY ===
+  app.get("/api/export/all", async (_req, res) => {
+    const [clips, allTags, bookmarks, prompts, uploads] = await Promise.all([
+      storage.getClips(),
+      storage.getTags(),
+      storage.getBookmarks(),
+      storage.getPrompts(),
+      storage.getUploads(),
+    ]);
+    res.json({ clips, tags: allTags, bookmarks, prompts, uploads, exportedAt: new Date().toISOString() });
+  });
+
+  app.get("/api/export/prompts", async (_req, res) => {
+    const prompts = await storage.getPrompts();
+    res.json({ prompts, exportedAt: new Date().toISOString() });
+  });
+
+  app.get("/api/export/clips", async (_req, res) => {
+    const clips = await storage.getClips();
+    res.json({ clips, exportedAt: new Date().toISOString() });
+  });
+
+  app.get("/api/export/bookmarks", async (_req, res) => {
+    const bookmarks = await storage.getBookmarks();
+    res.json({ bookmarks, exportedAt: new Date().toISOString() });
+  });
+
+  app.post("/api/import", async (req, res) => {
+    try {
+      const { clips, tags, bookmarks, prompts } = req.body;
+      const imported = { clips: 0, tags: 0, bookmarks: 0, prompts: 0 };
+
+      if (Array.isArray(clips)) {
+        for (const item of clips) {
+          await storage.createClip(item);
+          imported.clips++;
+        }
+      }
+      if (Array.isArray(tags)) {
+        for (const item of tags) {
+          await storage.createTag(item);
+          imported.tags++;
+        }
+      }
+      if (Array.isArray(bookmarks)) {
+        for (const item of bookmarks) {
+          await storage.createBookmark(item);
+          imported.bookmarks++;
+        }
+      }
+      if (Array.isArray(prompts)) {
+        for (const item of prompts) {
+          await storage.createPrompt(item);
+          imported.prompts++;
+        }
+      }
+
+      res.json({ imported });
+    } catch (e: any) {
+      res.status(400).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/export/autohotkey", async (_req, res) => {
+    const [allPrompts, allClips] = await Promise.all([
+      storage.getPrompts(),
+      storage.getClips(),
+    ]);
+    const snippets = allClips
+      .filter((c) => c.category === "snippets")
+      .map((c) => ({ title: c.title, content: c.content, tags: c.tags }));
+    const promptsFormatted = allPrompts.map((p) => ({
+      name: p.name,
+      template: p.template,
+      category: p.category,
+    }));
+    res.json({
+      version: "1.0",
+      app: "ClipSync",
+      prompts: promptsFormatted,
+      snippets,
+    });
+  });
+
   return httpServer;
 }
