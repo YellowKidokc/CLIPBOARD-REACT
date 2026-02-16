@@ -282,6 +282,186 @@ export async function registerRoutes(
     }
   });
 
+  // === DEEP RESEARCH ===
+  app.post("/api/research", async (req, res) => {
+    try {
+      const { query, urls, maxSources = 5, depth = "standard" } = req.body;
+      if (!query) return res.status(400).json({ message: "Research query is required" });
+
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+
+      const sendEvent = (type: string, data: any) => {
+        res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
+      };
+
+      sendEvent("status", { message: "Starting research...", phase: "init" });
+
+      let sourceUrls: string[] = urls || [];
+
+      if (sourceUrls.length === 0) {
+        sendEvent("status", { message: "Finding relevant sources...", phase: "search" });
+        try {
+          const searchResponse = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+              {
+                role: "system",
+                content: "You are a research assistant. Given a research topic, suggest 5-8 specific URLs that would be excellent sources for researching this topic. Return ONLY a JSON array of URL strings, no other text. Focus on authoritative, well-known sources like Wikipedia, official documentation, reputable news sites, and educational resources."
+              },
+              { role: "user", content: `Research topic: ${query}\n\nSuggest the best URLs to research this topic. Return only a JSON array of URLs.` }
+            ],
+            max_tokens: 1000,
+          });
+
+          const urlText = searchResponse.choices[0]?.message?.content || "[]";
+          try {
+            const parsed = JSON.parse(urlText.replace(/```json?\n?/g, "").replace(/```/g, "").trim());
+            sourceUrls = Array.isArray(parsed) ? parsed.slice(0, maxSources) : [];
+          } catch {
+            const urlMatches = urlText.match(/https?:\/\/[^\s"',\]]+/g);
+            sourceUrls = urlMatches ? urlMatches.slice(0, maxSources) : [];
+          }
+        } catch (e: any) {
+          sendEvent("error", { message: `URL discovery failed: ${e.message}` });
+        }
+      }
+
+      if (sourceUrls.length === 0) {
+        sendEvent("error", { message: "No sources found. Try providing specific URLs." });
+        res.write("data: [DONE]\n\n");
+        res.end();
+        return;
+      }
+
+      sendEvent("sources", { urls: sourceUrls, count: sourceUrls.length });
+
+      const scrapedContent: { url: string; title: string; content: string; success: boolean }[] = [];
+
+      for (let i = 0; i < sourceUrls.length; i++) {
+        const url = sourceUrls[i];
+        sendEvent("status", { message: `Scraping source ${i + 1}/${sourceUrls.length}: ${url}`, phase: "scrape", progress: Math.round(((i) / sourceUrls.length) * 50) });
+
+        try {
+          const response = await fetch(url, {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+              "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+              "Accept-Language": "en-US,en;q=0.9",
+            },
+            signal: AbortSignal.timeout(12000),
+          });
+
+          if (!response.ok) {
+            scrapedContent.push({ url, title: "", content: "", success: false });
+            sendEvent("scrape_result", { url, success: false, error: `HTTP ${response.status}` });
+            continue;
+          }
+
+          const html = await response.text();
+          const $ = cheerio.load(html);
+          $("script, style, nav, footer, header, aside, iframe, noscript, .advertisement, .ads, .cookie-banner").remove();
+
+          const title = $("title").text().trim() ||
+            $('meta[property="og:title"]').attr("content") ||
+            $("h1").first().text().trim() ||
+            url;
+
+          let content = "";
+          const selectors = ["article", "main", '[role="main"]', ".content", ".post-content", ".entry-content", ".article-body", "#content"];
+          for (const sel of selectors) {
+            const el = $(sel);
+            if (el.length && el.text().trim().length > 200) {
+              content = el.text().trim();
+              break;
+            }
+          }
+          if (!content || content.length < 200) {
+            content = $("body").text().trim();
+          }
+
+          content = content
+            .replace(/\s+/g, " ")
+            .replace(/\n{3,}/g, "\n\n")
+            .trim()
+            .substring(0, 15000);
+
+          scrapedContent.push({ url, title, content, success: true });
+          sendEvent("scrape_result", { url, success: true, title, contentLength: content.length });
+        } catch (e: any) {
+          scrapedContent.push({ url, title: "", content: "", success: false });
+          sendEvent("scrape_result", { url, success: false, error: e.message });
+        }
+      }
+
+      const successfulSources = scrapedContent.filter(s => s.success && s.content.length > 100);
+
+      if (successfulSources.length === 0) {
+        sendEvent("error", { message: "Could not scrape any sources. The pages may be protected or unavailable." });
+        res.write("data: [DONE]\n\n");
+        res.end();
+        return;
+      }
+
+      sendEvent("status", { message: `Analyzing ${successfulSources.length} sources with AI...`, phase: "analyze", progress: 60 });
+
+      const sourceContext = successfulSources.map((s, i) =>
+        `=== SOURCE ${i + 1}: ${s.title} ===\nURL: ${s.url}\n\n${s.content.substring(0, 8000)}\n`
+      ).join("\n\n");
+
+      const depthInstructions = depth === "deep"
+        ? "Provide an extremely thorough and detailed analysis. Include all relevant details, nuances, and edge cases. Structure with multiple sections and sub-sections."
+        : depth === "quick"
+        ? "Provide a concise but informative summary. Focus on the key takeaways and most important findings."
+        : "Provide a comprehensive research summary. Balance thoroughness with readability. Use clear sections and highlight key findings.";
+
+      const researchPrompt = `You are a Deep Research assistant. Analyze the following sources and create a comprehensive research report on the topic: "${query}"
+
+${depthInstructions}
+
+Structure your response with:
+1. **Executive Summary** - Key findings in 2-3 sentences
+2. **Detailed Analysis** - Main findings organized by theme
+3. **Key Insights** - Notable patterns, connections, or conclusions
+4. **Sources** - List the sources used with brief notes on each
+
+${sourceContext}`;
+
+      sendEvent("status", { message: "Generating research report...", phase: "synthesize", progress: 70 });
+
+      const stream = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: "You are a professional research analyst. Synthesize information from multiple sources into clear, well-structured research reports. Always cite which source information comes from. Be thorough but concise." },
+          { role: "user", content: researchPrompt },
+        ],
+        stream: true,
+        max_tokens: 8192,
+      });
+
+      for await (const chunk of stream) {
+        const content = chunk.choices[0]?.delta?.content;
+        if (content) {
+          sendEvent("content", { content });
+        }
+      }
+
+      sendEvent("status", { message: "Research complete!", phase: "done", progress: 100 });
+      res.write("data: [DONE]\n\n");
+      res.end();
+    } catch (e: any) {
+      console.error("Research error:", e.message);
+      if (!res.headersSent) {
+        res.status(500).json({ message: e.message });
+      } else {
+        res.write(`data: ${JSON.stringify({ type: "error", message: e.message })}\n\n`);
+        res.write("data: [DONE]\n\n");
+        res.end();
+      }
+    }
+  });
+
   // === MCP SERVER ENDPOINTS ===
   app.get("/api/mcp/tools", async (_req, res) => {
     res.json({

@@ -310,6 +310,16 @@ export default function ClipboardPage() {
   const [scraping, setScraping] = useState(false);
   const [selectedPresetId, setSelectedPresetId] = useState("default");
 
+  const [showResearch, setShowResearch] = useState(false);
+  const [researchQuery, setResearchQuery] = useState("");
+  const [researchUrls, setResearchUrls] = useState("");
+  const [researchDepth, setResearchDepth] = useState<"quick" | "standard" | "deep">("standard");
+  const [researchRunning, setResearchRunning] = useState(false);
+  const [researchStatus, setResearchStatus] = useState("");
+  const [researchProgress, setResearchProgress] = useState(0);
+  const [researchSources, setResearchSources] = useState<{url: string, success?: boolean, title?: string, error?: string}[]>([]);
+  const [researchResult, setResearchResult] = useState("");
+
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const aiFileInputRef = useRef<HTMLInputElement>(null);
@@ -686,6 +696,96 @@ export default function ClipboardPage() {
       tags: ["ai-generated"],
     } as any);
     toast({ title: "Saved to notes" });
+  };
+
+  const handleStartResearch = async () => {
+    if (!researchQuery.trim()) return;
+    setResearchRunning(true);
+    setResearchResult("");
+    setResearchSources([]);
+    setResearchStatus("Starting research...");
+    setResearchProgress(0);
+
+    const urlList = researchUrls.trim()
+      ? researchUrls.split("\n").map(u => u.trim()).filter(u => u.startsWith("http"))
+      : undefined;
+
+    try {
+      const response = await fetch("/api/research", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: researchQuery,
+          urls: urlList,
+          depth: researchDepth,
+          maxSources: 5,
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.message || "Research failed");
+      }
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let fullResult = "";
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const text = decoder.decode(value);
+          const lines = text.split("\n");
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              const data = line.slice(6);
+              if (data === "[DONE]") break;
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.type === "status") {
+                  setResearchStatus(parsed.message);
+                  if (parsed.progress !== undefined) setResearchProgress(parsed.progress);
+                }
+                if (parsed.type === "sources") {
+                  setResearchSources(parsed.urls.map((u: string) => ({ url: u })));
+                }
+                if (parsed.type === "scrape_result") {
+                  setResearchSources(prev => prev.map(s =>
+                    s.url === parsed.url ? { ...s, success: parsed.success, title: parsed.title, error: parsed.error } : s
+                  ));
+                }
+                if (parsed.type === "content") {
+                  fullResult += parsed.content;
+                  setResearchResult(fullResult);
+                }
+                if (parsed.type === "error") {
+                  toast({ title: "Research issue", description: parsed.message, variant: "destructive" });
+                }
+              } catch {}
+            }
+          }
+        }
+      }
+    } catch (e: any) {
+      toast({ title: "Research failed", description: e.message, variant: "destructive" });
+    } finally {
+      setResearchRunning(false);
+      setResearchStatus("Complete");
+      setResearchProgress(100);
+    }
+  };
+
+  const handleSaveResearch = () => {
+    if (!researchResult) return;
+    const title = `Research: ${researchQuery.substring(0, 50)}`;
+    createClip.mutate({
+      title,
+      content: researchResult,
+      category: "notes",
+      tags: ["research", "ai-generated"],
+    } as any);
+    toast({ title: "Research saved to notes" });
   };
 
   const getCategoryCount = (cat: SidebarCategory): number => {
@@ -1536,55 +1636,216 @@ export default function ClipboardPage() {
               <div className="flex-1 flex flex-col">
                 <div className="p-3 border-b border-border/50 flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Bot className="w-5 h-5 text-primary" />
-                    <h2 className="font-semibold">AI Assistant</h2>
-                    {aiAttachments.length > 0 && (
+                    <div className="flex items-center bg-muted rounded-lg p-0.5">
+                      <button
+                        onClick={() => setShowResearch(false)}
+                        className={cn(
+                          "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-all",
+                          !showResearch ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        <Bot className="w-4 h-4" />
+                        Chat
+                      </button>
+                      <button
+                        onClick={() => setShowResearch(true)}
+                        className={cn(
+                          "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-all",
+                          showResearch ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        <Search className="w-4 h-4" />
+                        Research
+                      </button>
+                    </div>
+                    {!showResearch && aiAttachments.length > 0 && (
                       <Badge variant="secondary" className="text-[10px]">
                         {aiAttachments.length} attached
                       </Badge>
                     )}
                   </div>
-                  <div className="flex items-center gap-1">
-                    <Select value={selectedPresetId} onValueChange={(v) => {
-                      setSelectedPresetId(v);
-                      const preset = systemPromptPresets.find(p => p.id === v);
-                      if (preset && preset.id !== "custom") {
-                        setSystemPrompt(preset.prompt);
-                      }
-                    }}>
-                      <SelectTrigger className="w-40 h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {systemPromptPresets.map(p => (
-                          <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => setShowSystemPrompt(true)}
-                      title="Edit system prompt"
-                    >
-                      <Settings className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => {
-                        setAiMessages([{ role: "assistant", content: "Chat cleared. How can I help?" }]);
-                        setAiAttachments([]);
-                      }}
-                      title="Clear chat"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
+                  {!showResearch && (
+                    <div className="flex items-center gap-1">
+                      <Select value={selectedPresetId} onValueChange={(v) => {
+                        setSelectedPresetId(v);
+                        const preset = systemPromptPresets.find(p => p.id === v);
+                        if (preset && preset.id !== "custom") {
+                          setSystemPrompt(preset.prompt);
+                        }
+                      }}>
+                        <SelectTrigger className="w-40 h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {systemPromptPresets.map(p => (
+                            <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => setShowSystemPrompt(true)}
+                        title="Edit system prompt"
+                      >
+                        <Settings className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => {
+                          setAiMessages([{ role: "assistant", content: "Chat cleared. How can I help?" }]);
+                          setAiAttachments([]);
+                        }}
+                        title="Clear chat"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  )}
                 </div>
 
+                {showResearch ? (
+                  <div className="flex-1 flex flex-col overflow-hidden">
+                    <ScrollArea className="flex-1">
+                      <div className="p-4 max-w-2xl mx-auto space-y-4">
+                        <div className="space-y-3">
+                          <div>
+                            <label className="text-sm font-medium mb-1.5 block">Research Topic</label>
+                            <Input
+                              placeholder="e.g., Latest advances in quantum computing..."
+                              value={researchQuery}
+                              onChange={(e) => setResearchQuery(e.target.value)}
+                              disabled={researchRunning}
+                              data-testid="input-research-query"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-sm font-medium mb-1.5 block">Specific URLs (optional)</label>
+                            <Textarea
+                              placeholder={"Paste URLs to research, one per line.\nLeave empty to auto-discover sources."}
+                              value={researchUrls}
+                              onChange={(e) => setResearchUrls(e.target.value)}
+                              rows={3}
+                              disabled={researchRunning}
+                              className="text-sm font-mono"
+                              data-testid="input-research-urls"
+                            />
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <div>
+                              <label className="text-sm font-medium mb-1.5 block">Depth</label>
+                              <Select value={researchDepth} onValueChange={(v: any) => setResearchDepth(v)}>
+                                <SelectTrigger className="w-36 h-9">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="quick">Quick</SelectItem>
+                                  <SelectItem value="standard">Standard</SelectItem>
+                                  <SelectItem value="deep">Deep</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="flex-1" />
+                            <Button
+                              onClick={handleStartResearch}
+                              disabled={researchRunning || !researchQuery.trim()}
+                              className="mt-auto"
+                              data-testid="button-start-research"
+                            >
+                              {researchRunning ? (
+                                <>
+                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                  Researching...
+                                </>
+                              ) : (
+                                <>
+                                  <Search className="w-4 h-4 mr-2" />
+                                  Start Research
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+
+                        {researchRunning && (
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              {researchStatus}
+                            </div>
+                            <div className="w-full bg-muted rounded-full h-2">
+                              <div
+                                className="bg-primary h-2 rounded-full transition-all duration-500"
+                                style={{ width: `${researchProgress}%` }}
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        {researchSources.length > 0 && (
+                          <div className="space-y-1.5">
+                            <h3 className="text-sm font-medium">Sources</h3>
+                            {researchSources.map((s, i) => (
+                              <div key={i} className="flex items-center gap-2 text-xs p-2 rounded bg-muted/50">
+                                {s.success === true && <Check className="w-3.5 h-3.5 text-green-500 shrink-0" />}
+                                {s.success === false && <X className="w-3.5 h-3.5 text-red-500 shrink-0" />}
+                                {s.success === undefined && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground shrink-0" />}
+                                <span className="truncate flex-1">{s.title || s.url}</span>
+                                {s.error && <span className="text-red-400 shrink-0">{s.error}</span>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {researchResult && (
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <h3 className="text-sm font-medium">Research Report</h3>
+                              <div className="flex gap-1">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 text-xs"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(researchResult);
+                                    toast({ title: "Copied" });
+                                  }}
+                                >
+                                  <Copy className="w-3 h-3 mr-1" />
+                                  Copy
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 text-xs"
+                                  onClick={handleSaveResearch}
+                                >
+                                  <Save className="w-3 h-3 mr-1" />
+                                  Save to Notes
+                                </Button>
+                              </div>
+                            </div>
+                            <div className="ai-bubble-assistant p-4 text-sm">
+                              <pre className="whitespace-pre-wrap font-sans leading-relaxed">{researchResult}</pre>
+                            </div>
+                          </div>
+                        )}
+
+                        {!researchRunning && !researchResult && (
+                          <div className="text-center py-8 text-muted-foreground">
+                            <Search className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                            <p className="text-sm">Enter a topic and start researching.</p>
+                            <p className="text-xs mt-1">Deep Research scrapes multiple sources, analyzes them with AI, and creates a comprehensive report.</p>
+                          </div>
+                        )}
+                      </div>
+                    </ScrollArea>
+                  </div>
+                ) : (
+                <>
                 {aiAttachments.length > 0 && (
                   <div className="px-4 py-2 border-b border-border/50 flex gap-2 flex-wrap">
                     {aiAttachments.map((att, i) => (
@@ -1790,6 +2051,8 @@ export default function ClipboardPage() {
                     </div>
                   </div>
                 </div>
+                </>
+                )}
               </div>
             ) : selectedClip ? (
               <>
