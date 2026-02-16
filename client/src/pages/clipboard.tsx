@@ -1959,11 +1959,13 @@ export default function ClipboardPage() {
                         <div className="space-y-3">
                           <div>
                             <label className="text-sm font-medium mb-1.5 block">Research Topic</label>
-                            <Input
+                            <Textarea
                               placeholder="e.g., Latest advances in quantum computing..."
                               value={researchQuery}
                               onChange={(e) => setResearchQuery(e.target.value)}
                               disabled={researchRunning}
+                              rows={2}
+                              className="text-sm resize-y min-h-[60px]"
                               data-testid="input-research-query"
                             />
                           </div>
@@ -1975,7 +1977,7 @@ export default function ClipboardPage() {
                               onChange={(e) => setResearchUrls(e.target.value)}
                               rows={3}
                               disabled={researchRunning}
-                              className="text-sm font-mono"
+                              className="text-sm font-mono resize-y min-h-[80px]"
                               data-testid="input-research-urls"
                             />
                           </div>
@@ -2310,11 +2312,13 @@ export default function ClipboardPage() {
                     <div className="space-y-3">
                       <div>
                         <label className="text-sm font-medium mb-1.5 block">Starting URL</label>
-                        <Input
+                        <Textarea
                           placeholder="https://example.com"
                           value={crawlUrl}
                           onChange={(e) => setCrawlUrl(e.target.value)}
                           disabled={crawlRunning}
+                          rows={2}
+                          className="text-sm resize-y min-h-[60px]"
                           data-testid="input-crawl-url"
                         />
                       </div>
@@ -2336,11 +2340,13 @@ export default function ClipboardPage() {
                         </div>
                         <div className="flex-1">
                           <label className="text-sm font-medium mb-1.5 block">Analysis Query (optional)</label>
-                          <Input
+                          <Textarea
                             placeholder="What are you looking for?"
                             value={crawlQuery}
                             onChange={(e) => setCrawlQuery(e.target.value)}
                             disabled={crawlRunning}
+                            rows={2}
+                            className="text-sm resize-y min-h-[60px]"
                             data-testid="input-crawl-query"
                           />
                         </div>
@@ -2413,20 +2419,19 @@ export default function ClipboardPage() {
                     <div className="space-y-3">
                       <div>
                         <label className="text-sm font-medium mb-1.5 block">URL to Scrape</label>
-                        <div className="flex gap-2">
-                          <Input
-                            placeholder="https://example.com/article"
-                            value={singleScrapeUrl}
-                            onChange={(e) => setSingleScrapeUrl(e.target.value)}
-                            onKeyDown={(e) => { if (e.key === "Enter") handleSingleScrape(); }}
-                            disabled={singleScrapeRunning}
-                            className="flex-1"
-                            data-testid="input-single-scrape"
-                          />
-                          <Button onClick={handleSingleScrape} disabled={singleScrapeRunning || !singleScrapeUrl.trim()} data-testid="button-scrape">
-                            {singleScrapeRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : "Scrape"}
-                          </Button>
-                        </div>
+                        <Textarea
+                          placeholder="https://example.com/article"
+                          value={singleScrapeUrl}
+                          onChange={(e) => setSingleScrapeUrl(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSingleScrape(); } }}
+                          disabled={singleScrapeRunning}
+                          rows={2}
+                          className="text-sm resize-y min-h-[60px]"
+                          data-testid="input-single-scrape"
+                        />
+                        <Button onClick={handleSingleScrape} disabled={singleScrapeRunning || !singleScrapeUrl.trim()} className="w-full" data-testid="button-scrape">
+                          {singleScrapeRunning ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Scraping...</> : "Scrape"}
+                        </Button>
                       </div>
                     </div>
 
