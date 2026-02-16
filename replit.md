@@ -43,6 +43,7 @@ scripts/clipboard_sync.py         - Desktop clipboard sync script (Python)
 - `/api/import` - Import data from JSON
 - `/api/chat` - AI chat with streaming responses (POST, SSE)
 - `/api/scrape` - Web page content extraction (POST)
+- `/api/research` - Deep Research: multi-source scrape + AI synthesis (POST, SSE)
 - `/api/mcp/tools` - MCP server: list available tools (GET)
 - `/api/mcp/call` - MCP server: execute tool (POST)
 
@@ -52,6 +53,11 @@ scripts/clipboard_sync.py         - Desktop clipboard sync script (Python)
 - 8 quick-action workflows: /summarize, /axioms, /improve, /tags, /code, /rate, /ideas, /email
 - File attachment support (text files, current note, clipboard paste)
 - Web scraping: fetch and attach web page content to chat context
+- **Deep Research**: multi-URL scraping + AI synthesis with streaming progress (Chat/Research tab toggle)
+  - Auto-discovers relevant URLs or accepts custom URL list
+  - Three depth levels: Quick, Standard, Deep
+  - Real-time progress tracking with source status indicators
+  - Save research reports directly to notes
 - Save AI responses back as clips
 - Copy AI responses to clipboard
 
