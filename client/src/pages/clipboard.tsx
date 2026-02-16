@@ -161,6 +161,11 @@ const systemPromptPresets = [
   { id: "coder", name: "Code Expert", prompt: "You are an expert software engineer. Analyze code for bugs, suggest improvements, explain algorithms, and follow best practices. Use code blocks for examples." },
   { id: "writer", name: "Writer/Editor", prompt: "You are a professional editor. Improve clarity, fix grammar, enhance style, and suggest better word choices. Maintain the author's voice." },
   { id: "axiom", name: "Axiom Extractor", prompt: "You are a philosopher and logician. Your job is to extract the core axioms, first principles, assumptions, and logical foundations from any content. Identify implicit assumptions and logical dependencies." },
+  { id: "strategist", name: "Strategist", prompt: "You are a strategic advisor. Analyze situations, identify opportunities and risks, suggest action plans, and think long-term. Be practical and results-oriented." },
+  { id: "teacher", name: "Teacher", prompt: "You are a patient and thorough teacher. Explain complex concepts simply, use analogies, provide examples, and check understanding. Adapt to the learner's level." },
+  { id: "data", name: "Data Analyst", prompt: "You are a data analyst. Extract patterns, identify trends, create structured summaries, and present data-driven insights. Use tables and lists when helpful." },
+  { id: "creative", name: "Creative Director", prompt: "You are a creative director. Generate innovative ideas, think outside the box, suggest unexpected connections, and push creative boundaries. Be bold and imaginative." },
+  { id: "critic", name: "Devil's Advocate", prompt: "You are a critical thinker. Challenge assumptions, find weaknesses in arguments, suggest counter-arguments, and stress-test ideas. Be constructively critical." },
   { id: "custom", name: "Custom", prompt: "" },
 ];
 
@@ -274,6 +279,7 @@ export default function ClipboardPage() {
   const [showSettings, setShowSettings] = useState(false);
   const [showHotkeys, setShowHotkeys] = useState(false);
   const [showAIChat, setShowAIChat] = useState(false);
+  const [activeTool, setActiveTool] = useState<"" | "research" | "crawl" | "scrape" | "mcp">("");
   const [hotkeys, setHotkeys] = useState<HotkeyConfig[]>(defaultHotkeys);
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
@@ -319,6 +325,21 @@ export default function ClipboardPage() {
   const [researchProgress, setResearchProgress] = useState(0);
   const [researchSources, setResearchSources] = useState<{url: string, success?: boolean, title?: string, error?: string}[]>([]);
   const [researchResult, setResearchResult] = useState("");
+
+  const [crawlUrl, setCrawlUrl] = useState("");
+  const [crawlMaxPages, setCrawlMaxPages] = useState(5);
+  const [crawlQuery, setCrawlQuery] = useState("");
+  const [crawlRunning, setCrawlRunning] = useState(false);
+  const [crawlStatus, setCrawlStatus] = useState("");
+  const [crawlPages, setCrawlPages] = useState<{url: string, title?: string, contentLength?: number, error?: string, status?: string}[]>([]);
+  const [crawlAnalysis, setCrawlAnalysis] = useState("");
+
+  const [singleScrapeUrl, setSingleScrapeUrl] = useState("");
+  const [singleScrapeRunning, setSingleScrapeRunning] = useState(false);
+  const [scrapeResults, setScrapeResults] = useState<{title: string, content: string, url: string, links: any[], contentLength: number}[]>([]);
+
+  const [mcpTools, setMcpTools] = useState<any[]>([]);
+  const [mcpLoading, setMcpLoading] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -788,6 +809,123 @@ export default function ClipboardPage() {
     toast({ title: "Research saved to notes" });
   };
 
+  const handleStartCrawl = async () => {
+    if (!crawlUrl.trim()) return;
+    setCrawlRunning(true);
+    setCrawlPages([]);
+    setCrawlAnalysis("");
+    setCrawlStatus("Starting crawl...");
+
+    try {
+      const response = await fetch("/api/crawl", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: crawlUrl, maxPages: crawlMaxPages, query: crawlQuery || undefined }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.message);
+      }
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let analysis = "";
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const text = decoder.decode(value);
+          const lines = text.split("\n");
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              const data = line.slice(6);
+              if (data === "[DONE]") break;
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.type === "status") setCrawlStatus(parsed.message);
+                if (parsed.type === "crawling") {
+                  setCrawlPages(prev => [...prev, { url: parsed.url, status: "crawling" }]);
+                  setCrawlStatus(`Crawling ${parsed.visited}/${parsed.total}: ${parsed.url}`);
+                }
+                if (parsed.type === "page_done") {
+                  setCrawlPages(prev => prev.map(p =>
+                    p.url === parsed.url ? { ...p, title: parsed.title, contentLength: parsed.contentLength, status: "done" } : p
+                  ));
+                }
+                if (parsed.type === "page_error") {
+                  setCrawlPages(prev => prev.map(p =>
+                    p.url === parsed.url ? { ...p, error: parsed.error, status: "error" } : p
+                  ));
+                }
+                if (parsed.type === "analysis") {
+                  analysis += parsed.content;
+                  setCrawlAnalysis(analysis);
+                }
+                if (parsed.type === "complete") {
+                  setCrawlStatus(`Crawl complete: ${parsed.pagesVisited} pages visited`);
+                }
+              } catch {}
+            }
+          }
+        }
+      }
+    } catch (e: any) {
+      toast({ title: "Crawl failed", description: e.message, variant: "destructive" });
+    } finally {
+      setCrawlRunning(false);
+    }
+  };
+
+  const handleSingleScrape = async () => {
+    if (!singleScrapeUrl.trim()) return;
+    setSingleScrapeRunning(true);
+    try {
+      const response = await fetch("/api/scrape", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: singleScrapeUrl }),
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.message);
+      }
+      const data = await response.json();
+      setScrapeResults(prev => [data, ...prev]);
+      toast({ title: "Page scraped", description: `${data.title} - ${data.contentLength.toLocaleString()} chars` });
+      setSingleScrapeUrl("");
+    } catch (e: any) {
+      toast({ title: "Scrape failed", description: e.message, variant: "destructive" });
+    } finally {
+      setSingleScrapeRunning(false);
+    }
+  };
+
+  const handleLoadMcpTools = async () => {
+    setMcpLoading(true);
+    try {
+      const response = await fetch("/api/mcp/tools");
+      const data = await response.json();
+      setMcpTools(data.tools || []);
+    } catch (e: any) {
+      toast({ title: "Failed to load MCP tools", description: e.message, variant: "destructive" });
+    } finally {
+      setMcpLoading(false);
+    }
+  };
+
+  const handleSaveCrawlResults = () => {
+    const content = crawlAnalysis || crawlPages.map(p => `${p.title || p.url}\n${p.url}\nContent: ${p.contentLength || 0} chars\n`).join("\n");
+    createClip.mutate({
+      title: `Crawl: ${crawlUrl.substring(0, 50)}`,
+      content,
+      category: "notes",
+      tags: ["crawl", "ai-generated"],
+    } as any);
+    toast({ title: "Crawl results saved to notes" });
+  };
+
   const getCategoryCount = (cat: SidebarCategory): number => {
     return clips.filter(clip => {
       switch (cat) {
@@ -950,6 +1088,7 @@ export default function ClipboardPage() {
             onClick={() => {
               setShowAIChat(true);
               setSelectedClipId(null);
+              setActiveTool("");
             }}
             variant={showAIChat ? "default" : "outline"}
             className={cn(
@@ -1007,6 +1146,7 @@ export default function ClipboardPage() {
                 onClick={() => {
                   setSelectedCategory(item.id);
                   setShowAIChat(false);
+                  setActiveTool("");
                 }}
                 className={cn(
                   "w-full flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors",
@@ -1100,6 +1240,7 @@ export default function ClipboardPage() {
                         onClick={() => {
                           setSelectedCategory(`tag:${tag.name}` as SidebarCategory);
                           setShowAIChat(false);
+                          setActiveTool("");
                         }}
                         className={cn(
                           "flex-1 flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors",
@@ -1129,6 +1270,7 @@ export default function ClipboardPage() {
                       onClick={() => {
                         setSelectedCategory(`tag:${tag}` as SidebarCategory);
                         setShowAIChat(false);
+                        setActiveTool("");
                       }}
                       className={cn(
                         "w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors",
@@ -1152,6 +1294,7 @@ export default function ClipboardPage() {
               onClick={() => {
                 setSelectedCategory("recycle");
                 setShowAIChat(false);
+                setActiveTool("");
               }}
               className={cn(
                 "w-full flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors",
@@ -1166,6 +1309,54 @@ export default function ClipboardPage() {
                 Recycle Bin
               </span>
               <span className="text-xs opacity-60">{getCategoryCount("recycle")}</span>
+            </button>
+
+            <Separator className="my-2" />
+            <p className="px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">Tools</p>
+            
+            <button
+              onClick={() => { setActiveTool("research"); setShowAIChat(true); setShowResearch(true); }}
+              className={cn(
+                "w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors",
+                activeTool === "research" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted/50"
+              )}
+              data-testid="nav-research"
+            >
+              <Search className="w-4 h-4" />
+              Deep Research
+            </button>
+            <button
+              onClick={() => { setActiveTool("crawl"); setShowAIChat(false); setSelectedClipId(null); }}
+              className={cn(
+                "w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors",
+                activeTool === "crawl" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted/50"
+              )}
+              data-testid="nav-crawl"
+            >
+              <Globe className="w-4 h-4" />
+              Web Crawling
+            </button>
+            <button
+              onClick={() => { setActiveTool("scrape"); setShowAIChat(false); setSelectedClipId(null); }}
+              className={cn(
+                "w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors",
+                activeTool === "scrape" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted/50"
+              )}
+              data-testid="nav-scrape"
+            >
+              <Scissors className="w-4 h-4" />
+              Web Scraping
+            </button>
+            <button
+              onClick={() => { setActiveTool("mcp"); setShowAIChat(false); setSelectedClipId(null); handleLoadMcpTools(); }}
+              className={cn(
+                "w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors",
+                activeTool === "mcp" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted/50"
+              )}
+              data-testid="nav-mcp"
+            >
+              <Zap className="w-4 h-4" />
+              MCP Server
             </button>
           </div>
         </ScrollArea>
@@ -2053,6 +2244,280 @@ export default function ClipboardPage() {
                 </div>
                 </>
                 )}
+              </div>
+            ) : activeTool === "crawl" ? (
+              <div className="flex-1 flex flex-col">
+                <div className="p-3 border-b border-border/50 flex items-center gap-2">
+                  <Globe className="w-5 h-5 text-primary" />
+                  <h2 className="font-semibold">Web Crawling</h2>
+                </div>
+                <ScrollArea className="flex-1">
+                  <div className="p-4 max-w-2xl mx-auto space-y-4">
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-sm font-medium mb-1.5 block">Starting URL</label>
+                        <Input
+                          placeholder="https://example.com"
+                          value={crawlUrl}
+                          onChange={(e) => setCrawlUrl(e.target.value)}
+                          disabled={crawlRunning}
+                          data-testid="input-crawl-url"
+                        />
+                      </div>
+                      <div className="flex gap-3">
+                        <div>
+                          <label className="text-sm font-medium mb-1.5 block">Max Pages</label>
+                          <Select value={String(crawlMaxPages)} onValueChange={(v) => setCrawlMaxPages(Number(v))}>
+                            <SelectTrigger className="w-24 h-9">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="3">3</SelectItem>
+                              <SelectItem value="5">5</SelectItem>
+                              <SelectItem value="10">10</SelectItem>
+                              <SelectItem value="15">15</SelectItem>
+                              <SelectItem value="20">20</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex-1">
+                          <label className="text-sm font-medium mb-1.5 block">Analysis Query (optional)</label>
+                          <Input
+                            placeholder="What are you looking for?"
+                            value={crawlQuery}
+                            onChange={(e) => setCrawlQuery(e.target.value)}
+                            disabled={crawlRunning}
+                            data-testid="input-crawl-query"
+                          />
+                        </div>
+                      </div>
+                      <Button onClick={handleStartCrawl} disabled={crawlRunning || !crawlUrl.trim()} className="w-full" data-testid="button-start-crawl">
+                        {crawlRunning ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Crawling...</> : <><Globe className="w-4 h-4 mr-2" />Start Crawl</>}
+                      </Button>
+                    </div>
+
+                    {crawlRunning && (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        {crawlStatus}
+                      </div>
+                    )}
+
+                    {crawlPages.length > 0 && (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-sm font-medium">Crawled Pages ({crawlPages.length})</h3>
+                          {!crawlRunning && (
+                            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={handleSaveCrawlResults}>
+                              <Save className="w-3 h-3 mr-1" />Save Results
+                            </Button>
+                          )}
+                        </div>
+                        {crawlPages.map((p, i) => (
+                          <div key={i} className="flex items-center gap-2 text-xs p-2 rounded bg-muted/50">
+                            {p.status === "done" && <Check className="w-3.5 h-3.5 text-green-500 shrink-0" />}
+                            {p.status === "error" && <X className="w-3.5 h-3.5 text-red-500 shrink-0" />}
+                            {p.status === "crawling" && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground shrink-0" />}
+                            <div className="flex-1 min-w-0">
+                              <p className="truncate font-medium">{p.title || p.url}</p>
+                              <p className="truncate text-muted-foreground">{p.url}</p>
+                            </div>
+                            {p.contentLength && <span className="text-muted-foreground shrink-0">{(p.contentLength / 1000).toFixed(1)}k</span>}
+                            {p.error && <span className="text-red-400 shrink-0">{p.error}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {crawlAnalysis && (
+                      <div className="space-y-2">
+                        <h3 className="text-sm font-medium">AI Analysis</h3>
+                        <div className="ai-bubble-assistant p-4 text-sm">
+                          <pre className="whitespace-pre-wrap font-sans leading-relaxed">{crawlAnalysis}</pre>
+                        </div>
+                      </div>
+                    )}
+
+                    {!crawlRunning && crawlPages.length === 0 && (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <Globe className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                        <p className="text-sm">Enter a URL to start crawling.</p>
+                        <p className="text-xs mt-1">The crawler follows internal links from the starting page, extracts content, and optionally analyzes it with AI.</p>
+                      </div>
+                    )}
+                  </div>
+                </ScrollArea>
+              </div>
+            ) : activeTool === "scrape" ? (
+              <div className="flex-1 flex flex-col">
+                <div className="p-3 border-b border-border/50 flex items-center gap-2">
+                  <Scissors className="w-5 h-5 text-primary" />
+                  <h2 className="font-semibold">Web Scraping</h2>
+                </div>
+                <ScrollArea className="flex-1">
+                  <div className="p-4 max-w-2xl mx-auto space-y-4">
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-sm font-medium mb-1.5 block">URL to Scrape</label>
+                        <div className="flex gap-2">
+                          <Input
+                            placeholder="https://example.com/article"
+                            value={singleScrapeUrl}
+                            onChange={(e) => setSingleScrapeUrl(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Enter") handleSingleScrape(); }}
+                            disabled={singleScrapeRunning}
+                            className="flex-1"
+                            data-testid="input-single-scrape"
+                          />
+                          <Button onClick={handleSingleScrape} disabled={singleScrapeRunning || !singleScrapeUrl.trim()} data-testid="button-scrape">
+                            {singleScrapeRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : "Scrape"}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {scrapeResults.length > 0 ? (
+                      <div className="space-y-4">
+                        {scrapeResults.map((result, i) => (
+                          <div key={i} className="border rounded-lg p-4 space-y-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <h3 className="font-medium text-sm truncate">{result.title}</h3>
+                                <a href={result.url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline truncate block">{result.url}</a>
+                              </div>
+                              <div className="flex gap-1 shrink-0">
+                                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => {
+                                  navigator.clipboard.writeText(result.content);
+                                  toast({ title: "Content copied" });
+                                }}>
+                                  <Copy className="w-3 h-3 mr-1" />Copy
+                                </Button>
+                                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => {
+                                  createClip.mutate({ title: result.title, content: result.content, category: "notes", tags: ["scraped"] } as any);
+                                  toast({ title: "Saved to notes" });
+                                }}>
+                                  <Save className="w-3 h-3 mr-1" />Save
+                                </Button>
+                                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => {
+                                  setAiAttachments(prev => [...prev, { filename: `web: ${result.title}`, content: result.content.substring(0, 20000) }]);
+                                  setShowAIChat(true);
+                                  setActiveTool("");
+                                  toast({ title: "Attached to AI chat" });
+                                }}>
+                                  <Paperclip className="w-3 h-3 mr-1" />Attach
+                                </Button>
+                              </div>
+                            </div>
+                            <Badge variant="secondary" className="text-[10px]">{result.contentLength.toLocaleString()} chars</Badge>
+                            {result.links && result.links.length > 0 && (
+                              <details className="text-xs">
+                                <summary className="cursor-pointer text-muted-foreground hover:text-foreground">{result.links.length} links found</summary>
+                                <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+                                  {result.links.slice(0, 20).map((l: any, j: number) => (
+                                    <a key={j} href={l.href} target="_blank" rel="noopener noreferrer" className="block text-primary hover:underline truncate">{l.text || l.href}</a>
+                                  ))}
+                                </div>
+                              </details>
+                            )}
+                            <pre className="text-xs text-muted-foreground whitespace-pre-wrap max-h-48 overflow-y-auto bg-muted/50 rounded p-2">{result.content.substring(0, 2000)}{result.content.length > 2000 ? "..." : ""}</pre>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <Scissors className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                        <p className="text-sm">Enter a URL to extract its content.</p>
+                        <p className="text-xs mt-1">Web Scraping extracts the text content, title, metadata, and links from any web page. Results can be copied, saved as notes, or attached to AI chat.</p>
+                      </div>
+                    )}
+                  </div>
+                </ScrollArea>
+              </div>
+            ) : activeTool === "mcp" ? (
+              <div className="flex-1 flex flex-col">
+                <div className="p-3 border-b border-border/50 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Zap className="w-5 h-5 text-primary" />
+                    <h2 className="font-semibold">MCP Server</h2>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={handleLoadMcpTools} disabled={mcpLoading}>
+                    {mcpLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Refresh"}
+                  </Button>
+                </div>
+                <ScrollArea className="flex-1">
+                  <div className="p-4 max-w-2xl mx-auto space-y-4">
+                    <div className="p-4 rounded-lg border bg-muted/30 space-y-3">
+                      <h3 className="font-medium text-sm">Connection Info</h3>
+                      <p className="text-xs text-muted-foreground">External AI tools (Claude Desktop, ChatGPT, Cursor) can connect to ClipSync via these MCP endpoints to read and write your clips.</p>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="font-mono text-[10px]">GET</Badge>
+                          <code className="text-xs font-mono text-muted-foreground">/api/mcp/tools</code>
+                          <span className="text-xs text-muted-foreground ml-auto">List available tools</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="font-mono text-[10px]">POST</Badge>
+                          <code className="text-xs font-mono text-muted-foreground">/api/mcp/call</code>
+                          <span className="text-xs text-muted-foreground ml-auto">Execute a tool</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <h3 className="font-medium text-sm">Available Tools ({mcpTools.length})</h3>
+                      {mcpTools.length === 0 && !mcpLoading && (
+                        <p className="text-sm text-muted-foreground">Click Refresh to load available tools.</p>
+                      )}
+                      {mcpTools.map((tool, i) => (
+                        <div key={i} className="p-3 rounded-lg border space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Zap className="w-4 h-4 text-primary" />
+                            <span className="font-mono text-sm font-medium">{tool.name}</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">{tool.description}</p>
+                          {tool.inputSchema?.properties && (
+                            <div className="text-xs space-y-1">
+                              <p className="text-muted-foreground font-medium">Parameters:</p>
+                              {Object.entries(tool.inputSchema.properties).map(([key, schema]: [string, any]) => (
+                                <div key={key} className="flex items-center gap-2 pl-2">
+                                  <code className="font-mono text-primary">{key}</code>
+                                  <span className="text-muted-foreground">
+                                    ({schema.type}{tool.inputSchema.required?.includes(key) ? ", required" : ""})
+                                  </span>
+                                  {schema.description && <span className="text-muted-foreground">- {schema.description}</span>}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="p-4 rounded-lg border bg-muted/30 space-y-3">
+                      <h3 className="font-medium text-sm">Usage Example</h3>
+                      <p className="text-xs text-muted-foreground">To use with Claude Desktop, add this to your MCP config:</p>
+                      <pre className="text-xs font-mono bg-background p-3 rounded overflow-x-auto">{`{
+  "mcpServers": {
+    "clipsync": {
+      "url": "${typeof window !== 'undefined' ? window.location.origin : ''}/api/mcp"
+    }
+  }
+}`}</pre>
+                      <Button variant="outline" size="sm" className="text-xs" onClick={() => {
+                        navigator.clipboard.writeText(JSON.stringify({
+                          mcpServers: {
+                            clipsync: {
+                              url: `${window.location.origin}/api/mcp`
+                            }
+                          }
+                        }, null, 2));
+                        toast({ title: "Config copied to clipboard" });
+                      }}>
+                        <Copy className="w-3 h-3 mr-1" />Copy Config
+                      </Button>
+                    </div>
+                  </div>
+                </ScrollArea>
               </div>
             ) : selectedClip ? (
               <>

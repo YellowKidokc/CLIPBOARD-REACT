@@ -1,0 +1,314 @@
+What you want is **single-source prompt authority** with dual deployment:
+
+* 🔹 Managed in a clean PWA UI
+* 🔹 Instantly available as AutoHotkey shortcuts
+* 🔹 Zero manual syncing
+* 🔹 Always consistent
+
+This is completely doable — and cleanly.
+
+---
+
+# 🧠 The Core Principle
+
+Do **not** store prompts inside AutoHotkey.
+
+Instead:
+
+> The PWA is the source of truth.
+> AutoHotkey is just a runtime executor.
+
+AHK should dynamically read from a generated config file.
+
+---
+
+# 🏗️ Clean Architecture
+
+Here’s the ideal structure:
+
+```
+Cloudflare Worker
+    ↓
+KV / D1 / Durable Object
+    ↓
+PWA (Prompt Editor UI)
+    ↓
+Prompt JSON Registry
+    ↓
+Export Generator (AHK format)
+    ↓
+Local Sync Script
+    ↓
+AutoHotkey Dynamic Loader
+```
+
+---
+
+# 🔥 Step 1 — Store Prompts in Structured JSON
+
+In your PWA database:
+
+```json
+{
+  "id": "adv_review",
+  "title": "Adversarial Review",
+  "shortcut": "Ctrl+Alt+A",
+  "category": "TQD",
+  "prompt": "You are a hostile peer reviewer...",
+  "temperature": 0.2,
+  "model": "gpt-4.1"
+}
+```
+
+Everything lives in one registry.
+
+---
+
+# 🔥 Step 2 — Export Generator Endpoint
+
+Your Cloudflare worker should generate:
+
+```
+GET /export/ahk
+```
+
+It returns:
+
+```ahk
+; AUTO-GENERATED FILE - DO NOT EDIT
+
+^!a::
+RunPrompt("adv_review")
+return
+
+^!s::
+RunPrompt("support_review")
+return
+```
+
+It dynamically maps:
+
+* Shortcut → Prompt ID
+
+No prompt text stored in AHK.
+
+Just ID references.
+
+---
+
+# 🔥 Step 3 — AutoHotkey Loader
+
+Your AHK script should include:
+
+```ahk
+#Include prompt_registry.ahk
+
+RunPrompt(id) {
+    Clipboard := ""
+    Send ^c
+    ClipWait, 1
+    
+    text := Clipboard
+    SendToPWA(id, text)
+}
+```
+
+Then:
+
+```
+SendToPWA(id, text)
+```
+
+Just POSTs to:
+
+```
+https://clipboard-sync.davidokc28.workers.dev/run
+```
+
+With:
+
+```json
+{
+  "prompt_id": "adv_review",
+  "content": "clipboard text"
+}
+```
+
+Now PWA handles:
+
+* Model selection
+* Prompt text
+* OpenAI call
+* Logging
+* Storage
+
+AHK is dumb and clean.
+
+---
+
+# 🔥 Step 4 — Auto Sync Script
+
+Write a small Python script:
+
+```python
+import requests
+
+url = "https://your-worker/export/ahk"
+r = requests.get(url)
+
+with open("prompt_registry.ahk", "w") as f:
+    f.write(r.text)
+```
+
+Run this:
+
+* On startup
+* On clipboard action
+* Or on hotkey reload
+
+Now every time you update shortcuts in the PWA…
+
+AutoHotkey updates automatically.
+
+---
+
+# 🎯 What You Gain
+
+✔ No duplicated prompt definitions
+✔ No manual AHK editing
+✔ Clean UI for editing
+✔ Centralized logging
+✔ OpenAI calls server-side
+✔ Shortcut changes propagate instantly
+
+---
+
+# 🚀 Advanced Mode (Very Powerful)
+
+Instead of generating AHK files…
+
+Have AHK fetch JSON at runtime.
+
+Example:
+
+```ahk
+url := "https://your-worker/prompts"
+json := HttpGet(url)
+```
+
+Then dynamically bind hotkeys.
+
+That removes file regeneration entirely.
+
+---
+
+# 🔥 Even More Advanced
+
+Build a small local tray app in Python that:
+
+* Polls Cloudflare
+* Rewrites AHK
+* Reloads AHK automatically
+
+You never touch it again.
+
+---
+
+# 🧩 If You Want Seamless UX
+
+In your PWA:
+
+* Prompt editor
+* Shortcut dropdown
+* Conflict detection
+* Category grouping
+* “Export & Sync” button
+* Live validation of AHK key syntax
+
+So user flow becomes:
+
+1. Create prompt
+2. Assign shortcut
+3. Click save
+4. AHK updates
+5. Done
+
+---
+
+# ⚠️ Important Design Rule
+
+Never let AHK contain real prompt text.
+
+Always store prompts server-side.
+
+This gives you:
+
+* Version control
+* Audit logs
+* History
+* Security
+* Model switching without AHK changes
+
+---
+
+# 🧠 If I Were Building Your Stack
+
+Given your current system:
+
+* clipboard-sync worker
+* ai-swarm orchestrator
+* vault sync
+* workflow manager
+
+I’d centralize this under:
+
+```
+ai-workflow-manager.davidokc28.workers.dev
+```
+
+Make it:
+
+* Prompt registry
+* Execution engine
+* Adversarial layer
+* TQD layer
+* Export layer
+
+Everything flows through one control plane.
+
+---
+
+# 🔐 Bonus: Security
+
+Have AHK send a token:
+
+```json
+{
+  "api_key": "LOCAL_MACHINE_TOKEN"
+}
+```
+
+So no one else can trigger it.
+
+---
+
+# 🎯 Final Clean Model
+
+PWA = Brain
+Cloudflare = Engine
+AHK = Keyboard bridge
+
+Single source of truth.
+Auto-deploying shortcuts.
+No duplication.
+No drift.
+
+---
+
+If you want, I can next:
+
+* Sketch the exact Cloudflare worker endpoints
+* Or design the AHK dynamic loader logic
+* Or give you a minimal working implementation structure
+
+Which layer do you want to lock down first?

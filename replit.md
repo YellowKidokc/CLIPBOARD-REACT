@@ -44,12 +44,13 @@ scripts/clipboard_sync.py         - Desktop clipboard sync script (Python)
 - `/api/chat` - AI chat with streaming responses (POST, SSE)
 - `/api/scrape` - Web page content extraction (POST)
 - `/api/research` - Deep Research: multi-source scrape + AI synthesis (POST, SSE)
+- `/api/crawl` - Web crawling: follows internal links, extracts content, optional AI analysis (POST, SSE)
 - `/api/mcp/tools` - MCP server: list available tools (GET)
 - `/api/mcp/call` - MCP server: execute tool (POST)
 
 ## AI Features
 - Streaming chat with OpenAI GPT-4o-mini
-- System prompt presets: General, Researcher, Coder, Writer, Axiom Extractor, Custom
+- System prompt presets: General, Researcher, Coder, Writer, Axiom Extractor, Strategist, Teacher, Data Analyst, Creative Director, Devil's Advocate, Custom
 - 8 quick-action workflows: /summarize, /axioms, /improve, /tags, /code, /rate, /ideas, /email
 - File attachment support (text files, current note, clipboard paste)
 - Web scraping: fetch and attach web page content to chat context

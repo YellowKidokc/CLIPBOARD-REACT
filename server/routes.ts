@@ -462,6 +462,146 @@ ${sourceContext}`;
     }
   });
 
+  // === WEB CRAWL (follows links from a starting URL) ===
+  app.post("/api/crawl", async (req, res) => {
+    try {
+      const { url, maxPages = 5, query } = req.body;
+      if (!url) return res.status(400).json({ message: "URL is required" });
+
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+
+      const sendEvent = (type: string, data: any) => {
+        res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`);
+      };
+
+      const visited = new Set<string>();
+      const results: { url: string; title: string; content: string; links: { text: string; href: string }[] }[] = [];
+      const queue: string[] = [url];
+
+      const baseUrl = new URL(url);
+
+      sendEvent("status", { message: `Starting crawl from ${url}`, total: maxPages });
+
+      while (queue.length > 0 && visited.size < maxPages) {
+        const currentUrl = queue.shift()!;
+        if (visited.has(currentUrl)) continue;
+        visited.add(currentUrl);
+
+        sendEvent("crawling", { url: currentUrl, visited: visited.size, total: maxPages });
+
+        try {
+          const response = await fetch(currentUrl, {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+              "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            },
+            signal: AbortSignal.timeout(10000),
+          });
+
+          if (!response.ok) {
+            sendEvent("page_error", { url: currentUrl, error: `HTTP ${response.status}` });
+            continue;
+          }
+
+          const contentType = response.headers.get("content-type") || "";
+          if (!contentType.includes("text/html")) {
+            sendEvent("page_error", { url: currentUrl, error: "Not HTML" });
+            continue;
+          }
+
+          const html = await response.text();
+          const $ = cheerio.load(html);
+          $("script, style, nav, footer, header, aside, iframe, noscript").remove();
+
+          const title = $("title").text().trim() || $("h1").first().text().trim() || currentUrl;
+
+          let content = "";
+          const selectors = ["article", "main", '[role="main"]', ".content", ".post-content", ".entry-content"];
+          for (const sel of selectors) {
+            const el = $(sel);
+            if (el.length && el.text().trim().length > 200) {
+              content = el.text().trim();
+              break;
+            }
+          }
+          if (!content || content.length < 100) {
+            content = $("body").text().trim();
+          }
+          content = content.replace(/\s+/g, " ").trim().substring(0, 10000);
+
+          const pageLinks: { text: string; href: string }[] = [];
+          $("a[href]").each((_i: number, el: any) => {
+            const href = $(el).attr("href");
+            const text = $(el).text().trim();
+            if (!href || !text) return;
+
+            let absoluteUrl = "";
+            try {
+              absoluteUrl = new URL(href, currentUrl).toString();
+            } catch { return; }
+
+            if (absoluteUrl.startsWith("javascript:") || absoluteUrl.startsWith("mailto:") || absoluteUrl.includes("#")) return;
+
+            const linkUrl = new URL(absoluteUrl);
+            if (linkUrl.hostname === baseUrl.hostname && !visited.has(absoluteUrl)) {
+              pageLinks.push({ text, href: absoluteUrl });
+              if (!queue.includes(absoluteUrl)) {
+                queue.push(absoluteUrl);
+              }
+            }
+          });
+
+          results.push({ url: currentUrl, title, content, links: pageLinks.slice(0, 20) });
+          sendEvent("page_done", { url: currentUrl, title, contentLength: content.length, linksFound: pageLinks.length });
+        } catch (e: any) {
+          sendEvent("page_error", { url: currentUrl, error: e.message });
+        }
+      }
+
+      if (query && results.length > 0) {
+        sendEvent("status", { message: "Analyzing crawled pages with AI..." });
+
+        const pagesContext = results.map((r, i) =>
+          `=== PAGE ${i + 1}: ${r.title} ===\nURL: ${r.url}\n${r.content.substring(0, 5000)}`
+        ).join("\n\n");
+
+        const stream = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [
+            { role: "system", content: "You are a web analysis assistant. Summarize and analyze crawled web pages based on the user's query. Be thorough and organized." },
+            { role: "user", content: `Query: ${query}\n\nAnalyze these crawled pages:\n\n${pagesContext}` },
+          ],
+          stream: true,
+          max_tokens: 4096,
+        });
+
+        for await (const chunk of stream) {
+          const c = chunk.choices[0]?.delta?.content;
+          if (c) sendEvent("analysis", { content: c });
+        }
+      }
+
+      sendEvent("complete", {
+        pagesVisited: visited.size,
+        totalResults: results.length,
+        pages: results.map(r => ({ url: r.url, title: r.title, contentLength: r.content.length })),
+      });
+      res.write("data: [DONE]\n\n");
+      res.end();
+    } catch (e: any) {
+      console.error("Crawl error:", e.message);
+      if (!res.headersSent) {
+        res.status(500).json({ message: e.message });
+      } else {
+        res.write(`data: ${JSON.stringify({ type: "error", message: e.message })}\n\n`);
+        res.write("data: [DONE]\n\n");
+        res.end();
+      }
+    }
+  });
+
   // === MCP SERVER ENDPOINTS ===
   app.get("/api/mcp/tools", async (_req, res) => {
     res.json({
