@@ -12,6 +12,8 @@
     "db:push": "drizzle-kit push"
   },
   "dependencies": {
+    "@cloudflare/workers-types": "^4.20260214.0",
+    "@hono/node-server": "^1.19.9",
     "@hookform/resolvers": "^3.10.0",
     "@jridgewell/trace-mapping": "^0.3.25",
     "@radix-ui/react-accordion": "^1.2.12",
@@ -42,6 +44,8 @@
     "@radix-ui/react-toggle-group": "^1.1.11",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@tanstack/react-query": "^5.60.5",
+    "@types/better-sqlite3": "^7.6.13",
+    "better-sqlite3": "^12.6.2",
     "cheerio": "^1.2.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -54,6 +58,7 @@
     "express": "^4.21.2",
     "express-session": "^1.18.1",
     "framer-motion": "^12.23.24",
+    "hono": "^4.11.9",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.545.0",
     "memorystore": "^1.6.7",
@@ -74,6 +79,7 @@
     "tw-animate-css": "^1.4.0",
     "vaul": "^1.1.2",
     "wouter": "^3.3.5",
+    "wrangler": "^4.65.0",
     "ws": "^8.18.0",
     "zod": "^3.25.76",
     "zod-validation-error": "^3.4.0"
