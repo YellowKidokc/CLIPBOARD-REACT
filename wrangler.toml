@@ -1,0 +1,19 @@
+name = "clipsync"
+main = "worker/index.ts"
+compatibility_date = "2024-12-01"
+
+[vars]
+ENVIRONMENT = "production"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "clipsync-db"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+# Uncomment when R2 bucket is created
+# [[r2_buckets]]
+# binding = "R2"
+# bucket_name = "clipsync-uploads"
+
+[site]
+bucket = "./dist/public"

@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { eq, desc, and, ilike, sql } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import {
   clips, type Clip, type InsertClip,
   tags, type Tag, type InsertTag,
@@ -63,12 +63,24 @@ export class DatabaseStorage implements IStorage {
     return clip;
   }
   async createClip(clip: InsertClip): Promise<Clip> {
-    const [created] = await db.insert(clips).values(clip).returning();
+    const values = {
+      ...clip,
+      fields: typeof clip.fields === "string" ? clip.fields : JSON.stringify(clip.fields || []),
+      tags: typeof clip.tags === "string" ? clip.tags : JSON.stringify(clip.tags || []),
+    };
+    const [created] = await db.insert(clips).values(values).returning();
     return created;
   }
   async updateClip(id: string, data: Partial<InsertClip>): Promise<Clip | undefined> {
+    const values: any = { ...data, updatedAt: new Date().toISOString() };
+    if (data.fields !== undefined) {
+      values.fields = typeof data.fields === "string" ? data.fields : JSON.stringify(data.fields);
+    }
+    if (data.tags !== undefined) {
+      values.tags = typeof data.tags === "string" ? data.tags : JSON.stringify(data.tags);
+    }
     const [updated] = await db.update(clips)
-      .set({ ...data, updatedAt: new Date() })
+      .set(values)
       .where(eq(clips.id, id))
       .returning();
     return updated;
@@ -96,12 +108,20 @@ export class DatabaseStorage implements IStorage {
     return bookmark;
   }
   async createBookmark(bookmark: InsertBookmark): Promise<Bookmark> {
-    const [created] = await db.insert(bookmarks).values(bookmark).returning();
+    const values = {
+      ...bookmark,
+      bookmarkTags: typeof bookmark.bookmarkTags === "string" ? bookmark.bookmarkTags : JSON.stringify(bookmark.bookmarkTags || []),
+    };
+    const [created] = await db.insert(bookmarks).values(values).returning();
     return created;
   }
   async updateBookmark(id: string, data: Partial<InsertBookmark>): Promise<Bookmark | undefined> {
+    const values: any = { ...data };
+    if (data.bookmarkTags !== undefined) {
+      values.bookmarkTags = typeof data.bookmarkTags === "string" ? data.bookmarkTags : JSON.stringify(data.bookmarkTags);
+    }
     const [updated] = await db.update(bookmarks)
-      .set(data)
+      .set(values)
       .where(eq(bookmarks.id, id))
       .returning();
     return updated;
