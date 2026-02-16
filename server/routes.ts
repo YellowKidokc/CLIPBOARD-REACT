@@ -784,9 +784,12 @@ ${sourceContext}`;
       .filter((c) => c.category === "snippets")
       .map((c) => ({ title: c.title, content: c.content, tags: c.tags }));
     const promptsFormatted = allPrompts.map((p) => ({
+      id: p.id,
       name: p.name,
       template: p.template,
       category: p.category,
+      shortcut: p.shortcut || "",
+      color: p.color,
     }));
     res.json({
       version: "1.0",
@@ -794,6 +797,47 @@ ${sourceContext}`;
       prompts: promptsFormatted,
       snippets,
     });
+  });
+
+  app.get("/api/export/autohotkey/script", async (_req, res) => {
+    const allPrompts = await storage.getPrompts();
+    const promptsWithShortcuts = allPrompts.filter((p) => p.shortcut && p.shortcut.trim());
+
+    let script = `; ClipSync AutoHotkey Integration\n`;
+    script += `; AUTO-GENERATED - DO NOT EDIT MANUALLY\n`;
+    script += `; Generated: ${new Date().toISOString()}\n`;
+    script += `; Prompts with shortcuts: ${promptsWithShortcuts.length}\n\n`;
+    script += `#SingleInstance Force\n`;
+    script += `#NoEnv\n`;
+    script += `SetWorkingDir %A_ScriptDir%\n\n`;
+    script += `; === ClipSync API Config ===\n`;
+    script += `ClipSyncURL := "REPLACE_WITH_YOUR_URL"\n\n`;
+    script += `RunPrompt(id) {\n`;
+    script += `    global ClipSyncURL\n`;
+    script += `    Clipboard := ""\n`;
+    script += `    Send ^c\n`;
+    script += `    ClipWait, 2\n`;
+    script += `    text := Clipboard\n`;
+    script += `    url := ClipSyncURL . "/api/mcp/call"\n`;
+    script += `    body := "{""tool"": ""create_clip"", ""arguments"": {""title"": ""AHK: " . id . """, ""content"": """ . text . """, ""category"": ""notes""}}"\n`;
+    script += `    whr := ComObjCreate("WinHttp.WinHttpRequest.5.1")\n`;
+    script += `    whr.Open("POST", url, false)\n`;
+    script += `    whr.SetRequestHeader("Content-Type", "application/json")\n`;
+    script += `    whr.Send(body)\n`;
+    script += `}\n\n`;
+    script += `; === Prompt Hotkeys ===\n`;
+
+    for (const p of promptsWithShortcuts) {
+      const ahkKey = p.shortcut!.replace("Ctrl+", "^").replace("Alt+", "!").replace("Shift+", "+").replace("Win+", "#");
+      script += `\n; ${p.name} (${p.category})\n`;
+      script += `${ahkKey}::\n`;
+      script += `RunPrompt("${p.id}")\n`;
+      script += `return\n`;
+    }
+
+    res.setHeader("Content-Type", "text/plain");
+    res.setHeader("Content-Disposition", "attachment; filename=clipsync_prompts.ahk");
+    res.send(script);
   });
 
   return httpServer;

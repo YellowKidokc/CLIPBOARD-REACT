@@ -75,6 +75,7 @@ export const prompts = pgTable("prompts", {
   template: text("template").notNull().default(""),
   category: text("category").notNull().default("custom"),
   color: text("color").notNull().default("#f59e0b"),
+  shortcut: text("shortcut").notNull().default(""),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
