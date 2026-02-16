@@ -52,6 +52,12 @@ import {
   Palette,
   Download,
   Import,
+  Paperclip,
+  ClipboardPaste,
+  BookOpen,
+  Scissors,
+  AlertCircle,
+  GlobeLock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -139,12 +145,23 @@ const defaultHotkeys: HotkeyConfig[] = [
 ];
 
 const aiWorkflows: AIWorkflow[] = [
-  { id: "w1", command: "/summarize", name: "Summarize", prompt: "Summarize this content concisely", icon: FileText },
-  { id: "w2", command: "/improve", name: "Improve Writing", prompt: "Improve the writing quality of this text", icon: Sparkles },
-  { id: "w3", command: "/tags", name: "Suggest Tags", prompt: "Suggest relevant tags for this content", icon: TagIcon },
-  { id: "w4", command: "/code", name: "Code Review", prompt: "Review this code for issues", icon: Code },
-  { id: "w5", command: "/email", name: "Draft Email", prompt: "Draft a professional email", icon: Mail },
-  { id: "w6", command: "/ideas", name: "Brainstorm", prompt: "Generate ideas related to this topic", icon: Lightbulb },
+  { id: "w1", command: "/summarize", name: "Summarize", prompt: "Summarize this content concisely, extracting the key points and main ideas.", icon: FileText },
+  { id: "w2", command: "/axioms", name: "Extract Axioms", prompt: "Extract the core axioms, first principles, and foundational assumptions from this content. List them clearly.", icon: BookOpen },
+  { id: "w3", command: "/improve", name: "Improve Writing", prompt: "Improve the writing quality of this text while preserving the original meaning.", icon: Sparkles },
+  { id: "w4", command: "/tags", name: "Suggest Tags", prompt: "Suggest relevant tags for this content. Return them as a comma-separated list.", icon: TagIcon },
+  { id: "w5", command: "/code", name: "Code Review", prompt: "Review this code for issues, bugs, and improvements. Be specific.", icon: Code },
+  { id: "w6", command: "/rate", name: "Rate & Analyze", prompt: "Rate this content on a scale of 1-10 for clarity, depth, and usefulness. Explain your rating.", icon: Star },
+  { id: "w7", command: "/ideas", name: "Brainstorm", prompt: "Generate creative ideas related to this topic.", icon: Lightbulb },
+  { id: "w8", command: "/email", name: "Draft Email", prompt: "Draft a professional email based on this content.", icon: Mail },
+];
+
+const systemPromptPresets = [
+  { id: "default", name: "General Assistant", prompt: "You are a helpful assistant that helps organize and manage clipboard content and notes. Be concise and helpful." },
+  { id: "researcher", name: "Researcher", prompt: "You are a research analyst. Extract key findings, cite sources, identify patterns, and provide structured analysis. Be thorough and academic." },
+  { id: "coder", name: "Code Expert", prompt: "You are an expert software engineer. Analyze code for bugs, suggest improvements, explain algorithms, and follow best practices. Use code blocks for examples." },
+  { id: "writer", name: "Writer/Editor", prompt: "You are a professional editor. Improve clarity, fix grammar, enhance style, and suggest better word choices. Maintain the author's voice." },
+  { id: "axiom", name: "Axiom Extractor", prompt: "You are a philosopher and logician. Your job is to extract the core axioms, first principles, assumptions, and logical foundations from any content. Identify implicit assumptions and logical dependencies." },
+  { id: "custom", name: "Custom", prompt: "" },
 ];
 
 type SidebarCategory = "notes" | "all" | "starred" | "untagged" | "clipboard" | "snippets" | "prompts" | "bookmarks" | "uploads" | "tags" | "recycle";
@@ -288,8 +305,15 @@ export default function ClipboardPage() {
   const [selectedUploadId, setSelectedUploadId] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
 
+  const [aiAttachments, setAiAttachments] = useState<{filename: string, content: string}[]>([]);
+  const [scrapeUrl, setScrapeUrl] = useState("");
+  const [scraping, setScraping] = useState(false);
+  const [selectedPresetId, setSelectedPresetId] = useState("default");
+
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const aiFileInputRef = useRef<HTMLInputElement>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
   const selectedClip = clips.find(c => c.id === selectedClipId) || null;
@@ -484,44 +508,89 @@ export default function ClipboardPage() {
     toast({ title: "Tag deleted" });
   };
 
+  const streamAIResponse = async (messages: {role: string, content: string}[], attachments?: {filename: string, content: string}[]) => {
+    setAiLoading(true);
+    setAiMessages(prev => [...prev, { role: "assistant", content: "" }]);
+
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages,
+          systemPrompt: systemPrompt,
+          attachments: attachments || aiAttachments,
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.message || "AI request failed");
+      }
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let fullResponse = "";
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const text = decoder.decode(value);
+          const lines = text.split("\n");
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              const data = line.slice(6);
+              if (data === "[DONE]") break;
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.content) {
+                  fullResponse += parsed.content;
+                  setAiMessages(prev => {
+                    const updated = [...prev];
+                    updated[updated.length - 1] = { role: "assistant", content: fullResponse };
+                    return updated;
+                  });
+                }
+                if (parsed.error) {
+                  throw new Error(parsed.error);
+                }
+              } catch (parseErr: any) {
+                if (parseErr.message && !parseErr.message.includes("Unexpected")) throw parseErr;
+              }
+            }
+          }
+        }
+      }
+    } catch (e: any) {
+      setAiMessages(prev => {
+        const updated = [...prev];
+        updated[updated.length - 1] = { role: "assistant", content: `Error: ${e.message}` };
+        return updated;
+      });
+      toast({ title: "AI Error", description: e.message, variant: "destructive" });
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   const handleSelectWorkflow = (workflow: AIWorkflow) => {
     setAiPrompt("");
     setShowWorkflowMenu(false);
 
-    const context = selectedClip ? `\n\nContext from "${selectedClip.title}":\n${selectedClip.content}` : "";
+    const context = selectedClip
+      ? `\n\nHere is the content from my note titled "${selectedClip.title}":\n\n${selectedClip.content}`
+      : "";
 
+    const userMsg = `${workflow.command} - ${workflow.name}${context}`;
     setAiMessages(prev => [...prev, { role: "user", content: `${workflow.command} - ${workflow.name}` }]);
-    setAiLoading(true);
 
-    setTimeout(() => {
-      let response = "";
-      switch (workflow.id) {
-        case "w1":
-          response = selectedClip
-            ? `Here's a summary of "${selectedClip.title}":\n\n• Key points extracted from your note\n• Main action items identified\n• Core concepts highlighted for quick reference`
-            : "Please select a note first, then I can summarize it for you.";
-          break;
-        case "w2":
-          response = "I've analyzed the text. Here are my suggestions:\n\n1. Consider breaking long sentences into shorter ones\n2. Use more active voice\n3. Add transition words between paragraphs\n\nWould you like me to rewrite it?";
-          break;
-        case "w3":
-          response = "Based on the content, I suggest these tags:\n\n#documentation #reference #important\n\nWould you like me to apply them?";
-          break;
-        case "w4":
-          response = "Code review complete:\n\n✅ Syntax looks good\n⚠️ Consider adding error handling\n💡 Variable naming could be more descriptive\n\nWant me to suggest specific improvements?";
-          break;
-        case "w5":
-          response = "I can help draft an email. Please provide:\n\n1. Who is the recipient?\n2. What's the main purpose?\n3. What tone? (formal/casual)\n\nOr just describe what you need!";
-          break;
-        case "w6":
-          response = "Here are some ideas to brainstorm:\n\n💡 Expand on the core concept\n💡 Consider alternative approaches\n💡 Look for connections to other projects\n💡 What problems does this solve?\n\nWhat direction interests you most?";
-          break;
-        default:
-          response = "Workflow executed. How can I help you further?";
-      }
-      setAiMessages(prev => [...prev, { role: "assistant", content: response }]);
-      setAiLoading(false);
-    }, 1200);
+    const chatHistory = aiMessages
+      .filter(m => m.role !== "assistant" || m.content)
+      .map(m => ({ role: m.role, content: m.content }));
+    chatHistory.push({ role: "user", content: `${workflow.prompt}${context}` });
+
+    streamAIResponse(chatHistory);
   };
 
   const handleAISubmit = () => {
@@ -533,30 +602,90 @@ export default function ClipboardPage() {
     }
 
     const userMessage = aiPrompt;
+    const context = selectedClip
+      ? `\n\n[Currently selected note: "${selectedClip.title}"]\n${selectedClip.content}`
+      : "";
+
     setAiMessages(prev => [...prev, { role: "user", content: userMessage }]);
     setAiPrompt("");
-    setAiLoading(true);
 
-    setTimeout(() => {
-      let response = "";
-      const lowerMsg = userMessage.toLowerCase();
+    const chatHistory = aiMessages
+      .filter(m => m.content)
+      .map(m => ({ role: m.role, content: m.content }));
+    chatHistory.push({ role: "user", content: userMessage + context });
 
-      if (lowerMsg.includes("list") && (lowerMsg.includes("note") || lowerMsg.includes("clip"))) {
-        const noteList = clips.filter(c => !c.deleted).slice(0, 5).map(c => `• ${c.title}`).join("\n");
-        response = `Here are your recent items:\n\n${noteList}\n\nWould you like me to do something with any of these?`;
-      } else if (lowerMsg.includes("find") || lowerMsg.includes("search")) {
-        response = `I can search through your ${clips.filter(c => !c.deleted).length} items. What are you looking for specifically?`;
-      } else if (lowerMsg.includes("help")) {
-        response = "I can help you with:\n\n• /summarize - Summarize notes\n• /improve - Improve writing\n• /tags - Suggest tags\n• /code - Code review\n• /email - Draft emails\n• /ideas - Brainstorm\n\nOr just ask me anything about your notes!";
-      } else if (selectedClip) {
-        response = `I see you have "${selectedClip.title}" selected. I can help you:\n\n• Summarize it\n• Improve the writing\n• Suggest tags\n• Find related items\n\nWhat would you like me to do?`;
-      } else {
-        response = "I'm ready to help! You can:\n\n• Select a note and ask me to work with it\n• Use /commands for quick workflows\n• Ask me to find or organize your content\n\nWhat would you like to do?";
+    streamAIResponse(chatHistory);
+  };
+
+  const handleScrapeUrl = async () => {
+    if (!scrapeUrl.trim()) return;
+    setScraping(true);
+    try {
+      const response = await fetch("/api/scrape", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: scrapeUrl }),
+      });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.message);
       }
+      const data = await response.json();
+      setAiAttachments(prev => [...prev, {
+        filename: `web: ${data.title || scrapeUrl}`,
+        content: data.content.substring(0, 20000),
+      }]);
+      toast({ title: "Page scraped", description: `Loaded ${data.contentLength.toLocaleString()} chars from ${data.title}` });
+      setScrapeUrl("");
+    } catch (e: any) {
+      toast({ title: "Scrape failed", description: e.message, variant: "destructive" });
+    } finally {
+      setScraping(false);
+    }
+  };
 
-      setAiMessages(prev => [...prev, { role: "assistant", content: response }]);
-      setAiLoading(false);
-    }, 1000);
+  const handleAiFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    Array.from(files).forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const content = ev.target?.result as string;
+        setAiAttachments(prev => [...prev, { filename: file.name, content }]);
+        toast({ title: "File attached", description: file.name });
+      };
+      reader.readAsText(file);
+    });
+    e.target.value = "";
+  };
+
+  const handleQuickPaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text && text.trim()) {
+        const title = text.substring(0, 60).replace(/\n/g, " ") + (text.length > 60 ? "..." : "");
+        await apiRequest("POST", "/api/clips", {
+          title,
+          content: text,
+          category: "clipboard",
+        });
+        queryClient.invalidateQueries({ queryKey: ["/api/clips"] });
+        toast({ title: "Pasted from clipboard" });
+      }
+    } catch {
+      toast({ title: "Clipboard access denied", description: "Try pasting manually", variant: "destructive" });
+    }
+  };
+
+  const handleSaveAiResponse = (content: string) => {
+    const title = content.substring(0, 60).replace(/\n/g, " ") + (content.length > 60 ? "..." : "");
+    createClip.mutate({
+      title,
+      content,
+      category: "notes",
+      tags: ["ai-generated"],
+    } as any);
+    toast({ title: "Saved to notes" });
   };
 
   const getCategoryCount = (cat: SidebarCategory): number => {
@@ -980,6 +1109,14 @@ export default function ClipboardPage() {
             </DropdownMenuContent>
           </DropdownMenu>
           <button
+            onClick={handleQuickPaste}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm text-muted-foreground hover:bg-muted/50"
+            data-testid="button-quick-paste"
+          >
+            <ClipboardPaste className="w-4 h-4" />
+            Quick Paste
+          </button>
+          <button
             onClick={() => setShowHotkeys(true)}
             className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm text-muted-foreground hover:bg-muted/50"
             data-testid="button-hotkeys"
@@ -1401,17 +1538,66 @@ export default function ClipboardPage() {
                   <div className="flex items-center gap-2">
                     <Bot className="w-5 h-5 text-primary" />
                     <h2 className="font-semibold">AI Assistant</h2>
+                    {aiAttachments.length > 0 && (
+                      <Badge variant="secondary" className="text-[10px]">
+                        {aiAttachments.length} attached
+                      </Badge>
+                    )}
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setShowSystemPrompt(true)}
-                    className="text-xs"
-                  >
-                    <Settings className="w-4 h-4 mr-1" />
-                    System Prompt
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Select value={selectedPresetId} onValueChange={(v) => {
+                      setSelectedPresetId(v);
+                      const preset = systemPromptPresets.find(p => p.id === v);
+                      if (preset && preset.id !== "custom") {
+                        setSystemPrompt(preset.prompt);
+                      }
+                    }}>
+                      <SelectTrigger className="w-40 h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {systemPromptPresets.map(p => (
+                          <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => setShowSystemPrompt(true)}
+                      title="Edit system prompt"
+                    >
+                      <Settings className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => {
+                        setAiMessages([{ role: "assistant", content: "Chat cleared. How can I help?" }]);
+                        setAiAttachments([]);
+                      }}
+                      title="Clear chat"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
                 </div>
+
+                {aiAttachments.length > 0 && (
+                  <div className="px-4 py-2 border-b border-border/50 flex gap-2 flex-wrap">
+                    {aiAttachments.map((att, i) => (
+                      <Badge key={i} variant="outline" className="text-xs gap-1 pr-1">
+                        <Paperclip className="w-3 h-3" />
+                        <span className="max-w-[120px] truncate">{att.filename}</span>
+                        <button onClick={() => setAiAttachments(prev => prev.filter((_, j) => j !== i))} className="ml-1 hover:text-destructive">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
 
                 <ScrollArea className="flex-1 p-4">
                   <div className="space-y-4 max-w-2xl mx-auto">
@@ -1426,35 +1612,58 @@ export default function ClipboardPage() {
                         )}
                       >
                         <div className={cn(
-                          "max-w-[80%] p-3.5 text-sm shadow-sm",
+                          "max-w-[80%] p-3.5 text-sm shadow-sm group relative",
                           msg.role === "user"
                             ? "ai-bubble-user"
                             : "ai-bubble-assistant"
                         )}>
                           <pre className="whitespace-pre-wrap font-sans leading-relaxed">{msg.content}</pre>
+                          {msg.role === "assistant" && msg.content && i > 0 && (
+                            <div className="flex gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard.writeText(msg.content);
+                                  toast({ title: "Copied" });
+                                }}
+                                className="text-[10px] px-2 py-0.5 rounded bg-background/50 hover:bg-background text-muted-foreground"
+                                data-testid={`copy-ai-msg-${i}`}
+                              >
+                                <Copy className="w-3 h-3 inline mr-1" />Copy
+                              </button>
+                              <button
+                                onClick={() => handleSaveAiResponse(msg.content)}
+                                className="text-[10px] px-2 py-0.5 rounded bg-background/50 hover:bg-background text-muted-foreground"
+                                data-testid={`save-ai-msg-${i}`}
+                              >
+                                <Save className="w-3 h-3 inline mr-1" />Save to Clip
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </motion.div>
                     ))}
-                    {aiLoading && (
+                    {aiLoading && aiMessages[aiMessages.length - 1]?.content === "" && (
                       <div className="flex justify-start">
                         <div className="bg-muted rounded-xl p-3">
                           <Loader2 className="w-4 h-4 animate-spin" />
                         </div>
                       </div>
                     )}
+                    <div ref={chatEndRef} />
                   </div>
                 </ScrollArea>
 
                 <div className="p-4 border-t border-border/50">
                   <div className="max-w-2xl mx-auto">
-                    <div className="flex gap-2 mb-3 overflow-x-auto pb-2">
-                      {aiWorkflows.slice(0, 4).map(wf => (
+                    <div className="flex gap-2 mb-3 overflow-x-auto pb-2 scrollbar-thin">
+                      {aiWorkflows.map(wf => (
                         <Button
                           key={wf.id}
                           variant="outline"
                           size="sm"
-                          className="shrink-0 text-xs"
+                          className="shrink-0 text-xs h-7"
                           onClick={() => handleSelectWorkflow(wf)}
+                          disabled={aiLoading}
                         >
                           <wf.icon className="w-3 h-3 mr-1" />
                           {wf.name}
@@ -1469,7 +1678,7 @@ export default function ClipboardPage() {
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: 10 }}
-                            className="absolute bottom-full mb-2 left-0 right-0 bg-popover border rounded-lg shadow-lg p-2"
+                            className="absolute bottom-full mb-2 left-0 right-0 bg-popover border rounded-lg shadow-lg p-2 z-10"
                           >
                             {filteredWorkflows.map(wf => (
                               <button
@@ -1487,26 +1696,96 @@ export default function ClipboardPage() {
                       </AnimatePresence>
 
                       <div className="flex gap-2">
-                        <Input
-                          ref={inputRef}
-                          value={aiPrompt}
-                          onChange={(e) => setAiPrompt(e.target.value)}
-                          placeholder="Ask AI or type / for workflows..."
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" && !e.shiftKey) {
-                              e.preventDefault();
-                              handleAISubmit();
-                            }
-                          }}
-                          className="flex-1"
-                          data-testid="input-ai"
-                        />
-                        <Button onClick={handleAISubmit} data-testid="button-ai-send">
-                          <Send className="w-4 h-4" />
+                        <div className="flex-1 flex gap-1">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="outline" size="icon" className="h-10 w-10 shrink-0" title="Attach" disabled={aiLoading}>
+                                <Paperclip className="w-4 h-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="start" className="w-56">
+                              <DropdownMenuItem onClick={() => aiFileInputRef.current?.click()}>
+                                <FileUp className="w-4 h-4 mr-2" />
+                                Upload File
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => {
+                                if (selectedClip) {
+                                  setAiAttachments(prev => [...prev, {
+                                    filename: `clip: ${selectedClip.title}`,
+                                    content: selectedClip.content,
+                                  }]);
+                                  toast({ title: "Attached current note" });
+                                } else {
+                                  toast({ title: "No note selected", variant: "destructive" });
+                                }
+                              }}>
+                                <FileText className="w-4 h-4 mr-2" />
+                                Attach Current Note
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={handleQuickPaste}>
+                                <ClipboardPaste className="w-4 h-4 mr-2" />
+                                Paste from Clipboard
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <Button variant="outline" size="icon" className="h-10 w-10 shrink-0" title="Scrape web page" disabled={aiLoading}>
+                                <Globe className="w-4 h-4" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-80" align="start">
+                              <div className="space-y-2">
+                                <h4 className="font-medium text-sm">Scrape Web Page</h4>
+                                <p className="text-xs text-muted-foreground">Enter a URL to extract its content and attach it to the chat.</p>
+                                <div className="flex gap-2">
+                                  <Input
+                                    placeholder="https://example.com/article"
+                                    value={scrapeUrl}
+                                    onChange={(e) => setScrapeUrl(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === "Enter") handleScrapeUrl(); }}
+                                    className="flex-1"
+                                    data-testid="input-scrape-url"
+                                  />
+                                  <Button size="sm" onClick={handleScrapeUrl} disabled={scraping}>
+                                    {scraping ? <Loader2 className="w-4 h-4 animate-spin" /> : "Fetch"}
+                                  </Button>
+                                </div>
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+
+                          <Input
+                            ref={inputRef}
+                            value={aiPrompt}
+                            onChange={(e) => setAiPrompt(e.target.value)}
+                            placeholder="Ask AI or type / for workflows..."
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && !e.shiftKey) {
+                                e.preventDefault();
+                                handleAISubmit();
+                              }
+                            }}
+                            className="flex-1"
+                            disabled={aiLoading}
+                            data-testid="input-ai"
+                          />
+                        </div>
+                        <Button onClick={handleAISubmit} disabled={aiLoading} data-testid="button-ai-send">
+                          {aiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                         </Button>
                       </div>
+                      <input
+                        ref={aiFileInputRef}
+                        type="file"
+                        className="hidden"
+                        accept=".txt,.md,.json,.csv,.js,.ts,.py,.html,.css,.xml,.yaml,.yml,.log"
+                        multiple
+                        onChange={handleAiFileUpload}
+                      />
                       <p className="text-xs text-muted-foreground mt-2">
-                        Type <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">/</kbd> for workflows • Press Enter to send
+                        Type <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">/</kbd> for workflows • Attach files or scrape pages for context
                       </p>
                     </div>
                   </div>
