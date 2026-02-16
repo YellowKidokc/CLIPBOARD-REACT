@@ -254,6 +254,10 @@ export default function ClipboardPage() {
     mutationFn: (data: any) => apiRequest("POST", "/api/prompts", data),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/prompts"] }),
   });
+  const updatePromptMut = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => apiRequest("PUT", `/api/prompts/${id}`, data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/prompts"] }),
+  });
   const deletePromptMut = useMutation({
     mutationFn: (id: string) => apiRequest("DELETE", `/api/prompts/${id}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/prompts"] }),
@@ -280,6 +284,12 @@ export default function ClipboardPage() {
   const [showHotkeys, setShowHotkeys] = useState(false);
   const [showAIChat, setShowAIChat] = useState(false);
   const [activeTool, setActiveTool] = useState<"" | "research" | "crawl" | "scrape" | "mcp">("");
+  const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
+  const [editPromptName, setEditPromptName] = useState("");
+  const [editPromptTemplate, setEditPromptTemplate] = useState("");
+  const [editPromptCategory, setEditPromptCategory] = useState("");
+  const [editPromptShortcut, setEditPromptShortcut] = useState("");
+  const [editPromptColor, setEditPromptColor] = useState("");
   const [hotkeys, setHotkeys] = useState<HotkeyConfig[]>(defaultHotkeys);
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
@@ -797,16 +807,31 @@ export default function ClipboardPage() {
     }
   };
 
+  const [saveTagsInput, setSaveTagsInput] = useState("");
+  const [showSaveDialog, setShowSaveDialog] = useState<{type: string, title: string, content: string} | null>(null);
+
+  const handleSaveWithTags = (type: string, title: string, content: string, defaultTags: string[] = []) => {
+    setShowSaveDialog({ type, title, content });
+    setSaveTagsInput(defaultTags.join(", "));
+  };
+
+  const confirmSaveWithTags = () => {
+    if (!showSaveDialog) return;
+    const tags = saveTagsInput.split(",").map(t => t.trim()).filter(Boolean);
+    createClip.mutate({
+      title: showSaveDialog.title,
+      content: showSaveDialog.content,
+      category: "notes",
+      tags,
+    } as any);
+    toast({ title: `${showSaveDialog.type} saved to notes` });
+    setShowSaveDialog(null);
+    setSaveTagsInput("");
+  };
+
   const handleSaveResearch = () => {
     if (!researchResult) return;
-    const title = `Research: ${researchQuery.substring(0, 50)}`;
-    createClip.mutate({
-      title,
-      content: researchResult,
-      category: "notes",
-      tags: ["research", "ai-generated"],
-    } as any);
-    toast({ title: "Research saved to notes" });
+    handleSaveWithTags("Research", `Research: ${researchQuery.substring(0, 50)}`, researchResult, ["research", "ai-generated"]);
   };
 
   const handleStartCrawl = async () => {
@@ -917,13 +942,7 @@ export default function ClipboardPage() {
 
   const handleSaveCrawlResults = () => {
     const content = crawlAnalysis || crawlPages.map(p => `${p.title || p.url}\n${p.url}\nContent: ${p.contentLength || 0} chars\n`).join("\n");
-    createClip.mutate({
-      title: `Crawl: ${crawlUrl.substring(0, 50)}`,
-      content,
-      category: "notes",
-      tags: ["crawl", "ai-generated"],
-    } as any);
-    toast({ title: "Crawl results saved to notes" });
+    handleSaveWithTags("Crawl results", `Crawl: ${crawlUrl.substring(0, 50)}`, content, ["crawl", "ai-generated"]);
   };
 
   const getCategoryCount = (cat: SidebarCategory): number => {
@@ -1051,6 +1070,27 @@ export default function ClipboardPage() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  const handleSelectPromptForEdit = (prompt: Prompt) => {
+    setEditingPromptId(prompt.id);
+    setEditPromptName(prompt.name);
+    setEditPromptTemplate(prompt.template);
+    setEditPromptCategory(prompt.category);
+    setEditPromptShortcut(prompt.shortcut || "");
+    setEditPromptColor(prompt.color);
+    setSelectedClipId(null);
+    setShowAIChat(false);
+    setActiveTool("");
+  };
+
+  const handleSavePromptEdit = () => {
+    if (!editingPromptId) return;
+    updatePromptMut.mutate({
+      id: editingPromptId,
+      data: { name: editPromptName, template: editPromptTemplate, category: editPromptCategory, shortcut: editPromptShortcut, color: editPromptColor },
+    });
+    toast({ title: "Prompt updated" });
+  };
+
   const handleUsePrompt = async (prompt: Prompt) => {
     try {
       await navigator.clipboard.writeText(prompt.template);
@@ -1147,6 +1187,7 @@ export default function ClipboardPage() {
                   setSelectedCategory(item.id);
                   setShowAIChat(false);
                   setActiveTool("");
+                  if (item.id !== "prompts") setEditingPromptId(null);
                 }}
                 className={cn(
                   "w-full flex items-center justify-between px-3 py-2 rounded-md text-sm transition-colors",
@@ -1390,6 +1431,12 @@ export default function ClipboardPage() {
               }}>
                 <Keyboard className="w-4 h-4 mr-2" />
                 Export for AutoHotkey
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => {
+                window.open("/api/export/autohotkey/script", "_blank");
+              }}>
+                <Code className="w-4 h-4 mr-2" />
+                Export AHK Script
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => {
                 window.open("/api/export/bookmarks", "_blank");
@@ -1721,7 +1768,8 @@ export default function ClipboardPage() {
                         key={`prompt-${prompt.id}`}
                         initial={{ opacity: 0, y: 4 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="prompt-card p-3.5 cursor-pointer"
+                        className={cn("prompt-card p-3.5 cursor-pointer", editingPromptId === prompt.id && "ring-1 ring-primary")}
+                        onClick={() => handleSelectPromptForEdit(prompt)}
                         data-testid={`prompt-card-${prompt.id}`}
                       >
                         <div className="flex items-start gap-2.5">
@@ -1734,6 +1782,12 @@ export default function ClipboardPage() {
                             <p className="text-[10px] text-muted-foreground/70 mt-1 line-clamp-2 font-mono">{prompt.template}</p>
                             <div className="flex items-center gap-2 mt-2">
                               <Badge variant="secondary" className="text-[10px]">{prompt.category}</Badge>
+                              {prompt.shortcut && (
+                                <Badge variant="outline" className="text-[10px] font-mono">
+                                  <Keyboard className="w-2.5 h-2.5 mr-0.5" />
+                                  {prompt.shortcut}
+                                </Badge>
+                              )}
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -2083,7 +2137,7 @@ export default function ClipboardPage() {
                                 <Copy className="w-3 h-3 inline mr-1" />Copy
                               </button>
                               <button
-                                onClick={() => handleSaveAiResponse(msg.content)}
+                                onClick={() => handleSaveWithTags("AI response", `AI: ${msg.content.substring(0, 50)}`, msg.content, ["ai-generated"])}
                                 className="text-[10px] px-2 py-0.5 rounded bg-background/50 hover:bg-background text-muted-foreground"
                                 data-testid={`save-ai-msg-${i}`}
                               >
@@ -2393,8 +2447,7 @@ export default function ClipboardPage() {
                                   <Copy className="w-3 h-3 mr-1" />Copy
                                 </Button>
                                 <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => {
-                                  createClip.mutate({ title: result.title, content: result.content, category: "notes", tags: ["scraped"] } as any);
-                                  toast({ title: "Saved to notes" });
+                                  handleSaveWithTags("Scraped page", result.title, result.content, ["scraped"]);
                                 }}>
                                   <Save className="w-3 h-3 mr-1" />Save
                                 </Button>
@@ -2518,6 +2571,69 @@ export default function ClipboardPage() {
                     </div>
                   </div>
                 </ScrollArea>
+              </div>
+            ) : editingPromptId && !selectedClip ? (
+              <div className="flex-1 flex flex-col">
+                <div className="p-3 border-b border-border/50 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: editPromptColor }} />
+                    <h2 className="font-semibold text-sm">Edit Prompt Template</h2>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button variant="outline" size="sm" onClick={() => handleUsePrompt(dbPrompts.find(p => p.id === editingPromptId)!)}>
+                      <Copy className="w-3 h-3 mr-1" />Copy
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditingPromptId(null)}>
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+                <ScrollArea className="flex-1">
+                  <div className="p-4 space-y-4 max-w-xl">
+                    <div>
+                      <label className="text-sm font-medium mb-1.5 block">Name</label>
+                      <Input value={editPromptName} onChange={(e) => setEditPromptName(e.target.value)} data-testid="input-prompt-name" />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium mb-1.5 block">Category</label>
+                      <Input value={editPromptCategory} onChange={(e) => setEditPromptCategory(e.target.value)} placeholder="e.g. TQD, writing, code" data-testid="input-prompt-category" />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium mb-1.5 block">Shortcut (AutoHotkey)</label>
+                      <Input value={editPromptShortcut} onChange={(e) => setEditPromptShortcut(e.target.value)} placeholder="e.g. Ctrl+Alt+A" data-testid="input-prompt-shortcut" />
+                      <p className="text-[10px] text-muted-foreground mt-1">Use Ctrl+, Alt+, Shift+, Win+ modifiers. E.g. Ctrl+Alt+R</p>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium mb-1.5 block">Color</label>
+                      <div className="flex flex-wrap gap-2">
+                        {["#f59e0b", "#ef4444", "#10b981", "#3b82f6", "#8b5cf6", "#ec4899", "#06b6d4", "#f97316", "#84cc16", "#6366f1"].map(c => (
+                          <button
+                            key={c}
+                            className={cn("w-6 h-6 rounded-full border-2 transition-all", editPromptColor === c ? "border-foreground scale-110" : "border-transparent")}
+                            style={{ backgroundColor: c }}
+                            onClick={() => setEditPromptColor(c)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium mb-1.5 block">Template</label>
+                      <Textarea
+                        value={editPromptTemplate}
+                        onChange={(e) => setEditPromptTemplate(e.target.value)}
+                        className="min-h-[200px] font-mono text-sm"
+                        placeholder="Enter prompt template..."
+                        data-testid="textarea-prompt-template"
+                      />
+                    </div>
+                  </div>
+                </ScrollArea>
+                <div className="p-3 border-t border-border/50 flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Prompt Template</span>
+                  <Button onClick={handleSavePromptEdit} size="sm" className="gap-2" data-testid="button-save-prompt">
+                    <Save className="w-4 h-4" />Save
+                  </Button>
+                </div>
               </div>
             ) : selectedClip ? (
               <>
@@ -2830,6 +2946,63 @@ export default function ClipboardPage() {
 
       {/* Settings */}
       {showSettings && <SettingsPage onClose={() => setShowSettings(false)} />}
+
+      <Dialog open={!!showSaveDialog} onOpenChange={(open) => { if (!open) setShowSaveDialog(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Save className="w-5 h-5" />
+              Save to Notes
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Title</label>
+              <Input
+                value={showSaveDialog?.title || ""}
+                onChange={(e) => setShowSaveDialog(prev => prev ? { ...prev, title: e.target.value } : null)}
+                data-testid="input-save-title"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1.5 block">Tags (comma-separated)</label>
+              <Input
+                value={saveTagsInput}
+                onChange={(e) => setSaveTagsInput(e.target.value)}
+                placeholder="research, ai-generated, topic..."
+                data-testid="input-save-tags"
+              />
+              {allTagNames.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {allTagNames.slice(0, 10).map(tag => (
+                    <button
+                      key={tag}
+                      className="px-2 py-0.5 text-[10px] rounded-full bg-muted hover:bg-muted/80 transition-colors"
+                      onClick={() => {
+                        const current = saveTagsInput.split(",").map(t => t.trim()).filter(Boolean);
+                        if (!current.includes(tag)) {
+                          setSaveTagsInput(current.length ? `${saveTagsInput}, ${tag}` : tag);
+                        }
+                      }}
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Content preview: {showSaveDialog?.content.substring(0, 100)}...
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowSaveDialog(null)}>Cancel</Button>
+              <Button onClick={confirmSaveWithTags} data-testid="button-confirm-save">
+                <Save className="w-4 h-4 mr-2" />Save
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
