@@ -88,9 +88,16 @@ scripts/clipboard_sync.py         - Desktop clipboard sync script (Python)
 - Added 8 quick-action workflow buttons in AI chat
 - Added "Save to Clip" and copy buttons on AI responses
 - Added Quick Paste button in sidebar for mobile clipboard capture
+- Added Tools section in sidebar: Deep Research, Web Crawling, Web Scraping, MCP Server
+- Added /api/crawl endpoint for web crawling with link following and AI analysis
+- Added prompt template editor with shortcut (AHK hotkey) field, category, color
+- Added /api/export/autohotkey/script endpoint for auto-generated AHK script with hotkey mappings
+- Enhanced save-to-notes with tag selection dialog (research, crawl, scrape, AI results)
+- Expanded system prompts to 11 presets (added Strategist, Teacher, Data Analyst, Creative Director, Devil's Advocate)
 
 ## User Preferences
 - Dark theme, "Nintendo/Clipto-style" aesthetic
 - Deploy target: Cloudflare with R2 storage (future)
-- AutoHotkey integration via JSON export
+- AutoHotkey integration via JSON export + AHK script generation
+- PWA as source of truth for prompts, AHK as runtime executor
 - PWA for desktop app experience
