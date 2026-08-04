@@ -122,6 +122,19 @@ interface AIWorkflow {
   icon: typeof Zap;
 }
 
+function arrayField<T>(value: string | T[] | null | undefined): T[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 const fieldIcons: Record<string, typeof Key> = {
   text: FileText,
   password: Lock,
@@ -400,7 +413,7 @@ export default function ClipboardPage() {
     if (selectedClip) {
       setEditingContent(selectedClip.content || "");
       setEditingTitle(selectedClip.title || "");
-      setEditingFields((selectedClip.fields as StructuredField[]) || []);
+      setEditingFields(arrayField<StructuredField>(selectedClip.fields));
     }
   }, [selectedClipId, selectedClip?.updatedAt]);
 
@@ -522,7 +535,7 @@ export default function ClipboardPage() {
 
   const handleAddTagToClip = (tagName: string) => {
     if (!selectedClip || !tagName.trim()) return;
-    const currentTags = selectedClip.tags || [];
+    const currentTags = arrayField<string>(selectedClip.tags);
     if (currentTags.includes(tagName.trim())) return;
     updateClip.mutate({ id: selectedClip.id, tags: [...currentTags, tagName.trim()] });
     setNewClipTag("");
@@ -531,7 +544,7 @@ export default function ClipboardPage() {
 
   const handleRemoveTagFromClip = (tagName: string) => {
     if (!selectedClip) return;
-    const currentTags = (selectedClip.tags || []).filter(t => t !== tagName);
+    const currentTags = arrayField<string>(selectedClip.tags).filter(t => t !== tagName);
     updateClip.mutate({ id: selectedClip.id, tags: currentTags });
   };
 
@@ -1845,14 +1858,14 @@ export default function ClipboardPage() {
                     </div>
                     <p className="text-xs text-muted-foreground line-clamp-2 mb-2">
                       {clip.isStructured
-                        ? `${(clip.fields as any[])?.length || 0} fields`
+                        ? `${arrayField(clip.fields).length} fields`
                         : clip.content}
                     </p>
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] text-muted-foreground">
                         {formatTimeAgo(clip.createdAt)}
                       </span>
-                      {(clip.tags || []).slice(0, 2).map(tag => {
+                      {arrayField<string>(clip.tags).slice(0, 2).map(tag => {
                         const tagObj = apiTags.find(t => t.name === tag);
                         return (
                           <span key={tag} className="tag-pill text-[10px]">
@@ -2715,7 +2728,7 @@ export default function ClipboardPage() {
 
                 <div className="p-3 border-b border-border/50 flex items-center gap-2 flex-wrap">
                   <span className="text-xs text-muted-foreground">Tags:</span>
-                  {(selectedClip.tags || []).map(tag => {
+                  {arrayField<string>(selectedClip.tags).map(tag => {
                     const tagObj = apiTags.find(t => t.name === tag);
                     return (
                       <Badge key={tag} variant="secondary" className="text-xs group/tag cursor-default">
@@ -2759,7 +2772,7 @@ export default function ClipboardPage() {
                           <>
                             <Separator />
                             <div className="max-h-32 overflow-y-auto space-y-1">
-                              {allTagNames.filter(t => !(selectedClip.tags || []).includes(t)).map(tag => {
+                              {allTagNames.filter(t => !arrayField<string>(selectedClip.tags).includes(t)).map(tag => {
                                 const tagObj = apiTags.find(t => t.name === tag);
                                 return (
                                   <button

@@ -1,6 +1,7 @@
 name = "clipsync"
 main = "worker/index.ts"
 compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
 
 [vars]
 ENVIRONMENT = "production"
@@ -10,10 +11,8 @@ binding = "DB"
 database_name = "clipsync-db"
 database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
 
-# Uncomment when R2 bucket is created
-# [[r2_buckets]]
-# binding = "R2"
-# bucket_name = "clipsync-uploads"
-
-[site]
-bucket = "./dist/public"
+[assets]
+directory = "./dist/public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
