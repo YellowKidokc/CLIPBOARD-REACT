@@ -7,10 +7,13 @@ import { insertClipSchema, insertTagSchema, insertBookmarkSchema, insertPromptSc
 import { z } from "zod";
 import { streamSSE } from "hono/streaming";
 import OpenAI from "openai";
+import { apiKeyGate } from "../shared/api-key";
 
 type Bindings = {
   DB: D1Database;
   OPENAI_API_KEY: string;
+  /** `wrangler secret put CLIPSYNC_API_KEY`. Without it the API answers 503: this Worker is public. */
+  CLIPSYNC_API_KEY?: string;
   ENVIRONMENT: string;
   ASSETS: Fetcher;
 };
@@ -379,6 +382,7 @@ api.post("/import", async (c) => {
   return c.json({ imported });
 });
 
+app.use("/api/*", apiKeyGate((c) => c.env.CLIPSYNC_API_KEY, "refuse"));
 app.route("/api", api);
 
 app.onError((error, c) => {

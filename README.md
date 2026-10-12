@@ -79,7 +79,7 @@ npm run check      # TypeScript
 
 ## Alternative: Cloudflare Worker + D1
 
-> This path predates the Synology setup and has no API-key check yet; put Cloudflare Access in front of it before use.
+> The Worker is public, so its API stays off (503) until you set a key: `npx wrangler secret put CLIPSYNC_API_KEY`. Requests then need `X-API-Key` or `Authorization: Bearer`, the same as the Synology server; the app asks for the key once. Cloudflare Access in front is still recommended.
 
 The existing React interface is deployed unchanged as Cloudflare static assets. A Hono Worker serves the API, Cloudflare D1 stores clips, tags, bookmarks, prompts, and uploads, and the same Worker exposes both the app's REST API and a remote MCP endpoint.
 
@@ -97,6 +97,7 @@ Copy the returned database ID into `wrangler.toml` in place of `REPLACE_WITH_YOU
 
 ```bash
 npx wrangler d1 migrations apply clipsync-db --remote
+npx wrangler secret put CLIPSYNC_API_KEY # required: the API is off without it
 npx wrangler secret put OPENAI_API_KEY   # optional; required only for AI chat
 npm run cf:deploy
 ```
