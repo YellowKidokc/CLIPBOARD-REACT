@@ -6,7 +6,16 @@ import OpenAI from "openai";
 import * as cheerio from "cheerio";
 import { streamSSE } from "hono/streaming";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Created on first use so the server starts without OPENAI_API_KEY (the SDK throws on a
+// missing key); only the AI routes need it.
+let openaiClient: OpenAI | undefined;
+const openai = new Proxy({} as OpenAI, {
+  get(_target, prop) {
+    if (!process.env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not configured on the server");
+    openaiClient ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    return Reflect.get(openaiClient, prop);
+  },
+});
 
 const api = new Hono();
 
@@ -26,9 +35,27 @@ function parseBookmark(bm: any) {
   return { ...bm, bookmarkTags: parseJsonField(bm.bookmarkTags, []) };
 }
 
+// The list is for browsing: newest first, capped, with long clips cut to a preview.
+// `truncated: true` means GET /clips/:id has the full text.
+export const CLIP_PREVIEW_CHARS = 4000;
+const DEFAULT_CLIP_LIMIT = 1000;
+
+export function toListItem(clip: any) {
+  const content: string = clip.content ?? "";
+  if (content.length <= CLIP_PREVIEW_CHARS) return { ...parseClip(clip), truncated: false };
+  return {
+    ...parseClip(clip),
+    content: content.slice(0, CLIP_PREVIEW_CHARS),
+    truncated: true,
+    contentLength: content.length,
+  };
+}
+
 api.get("/clips", async (c) => {
-  const clips = await storage.getClips();
-  return c.json(clips.map(parseClip));
+  const limitParam = c.req.query("limit");
+  const limit = limitParam === "all" ? undefined : Math.min(Math.max(parseInt(limitParam || "", 10) || DEFAULT_CLIP_LIMIT, 1), 50000);
+  const clips = await storage.getClips({ limit, q: c.req.query("q") });
+  return c.json(clips.map(toListItem));
 });
 
 api.get("/clips/:id", async (c) => {
@@ -50,6 +77,15 @@ api.post("/clips", async (c) => {
 
 api.patch("/clips/:id", async (c) => {
   const body = await c.req.json();
+  delete body.truncated;
+  delete body.contentLength;
+  if (typeof body.content === "string" && body.content.length === CLIP_PREVIEW_CHARS) {
+    // Guard: never overwrite a long clip with its own list preview.
+    const existing = await storage.getClip(c.req.param("id"));
+    if (existing && existing.content.length > CLIP_PREVIEW_CHARS && existing.content.startsWith(body.content)) {
+      return c.json({ message: "Refusing to save a truncated preview over the full clip; reload the clip first." }, 409);
+    }
+  }
   const clip = await storage.updateClip(c.req.param("id"), body);
   if (!clip) return c.json({ message: "Not found" }, 404);
   return c.json(parseClip(clip));

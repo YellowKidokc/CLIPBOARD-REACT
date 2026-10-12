@@ -1,4 +1,85 @@
-# ClipSync on Cloudflare
+# ClipSync
+
+Clipboard manager: history, pinned and starred clips, prompts, bookmarks, AI chat. It installs
+as an app on any device (it's a PWA). The data lives on your Synology.
+
+## Synology + Cloudflare (recommended)
+
+```text
+ phone / laptop / PC ──https──> clip.<your-domain> (Cloudflare Access login)
+                                      │  Cloudflare Tunnel (no open router ports)
+                                      ▼
+                     Synology: clipsync container ── ./data/clipsync.db (SQLite)
+ Windows capture script ──LAN──> http://NAS-IP:5000
+```
+
+### 1. Run it on the Synology
+
+1. DSM: install **Container Manager**. Create the folder `/volume1/docker/clipsync` and copy this repo into it.
+2. Copy `.env.example` to `.env`. Set `CLIPSYNC_API_KEY` to a long random value, and set
+   `CLIPSYNC_UID` / `CLIPSYNC_GID` to the DSM user that owns the folder (`id` over SSH; the first
+   admin is usually `1024` / `100`).
+3. Container Manager → **Project → Create** → path `/volume1/docker/clipsync` → it finds `compose.yaml` → build.
+4. Open `http://NAS-IP:5000`. The browser asks for the API key once and remembers it.
+
+Everything durable is in `./data` (back up the whole folder, including any `-wal` / `-shm` files).
+
+### 2. Put it on your Cloudflare domain
+
+1. Cloudflare dashboard → **Zero Trust → Networks → Tunnels → Create a tunnel** (Cloudflared).
+   Copy the token into `.env` as `CLOUDFLARE_TUNNEL_TOKEN` (keep `COMPOSE_PROFILES=tunnel`) and
+   rebuild the project. The `tunnel` container connects out; nothing on the router changes.
+2. In the tunnel, add a **public hostname**: e.g. `clip.<your-domain>` → service `http://clipsync:5000`.
+3. **Zero Trust → Access → Applications → Add → Self-hosted** for the same hostname, with a policy
+   that allows only your email. Without this the app is public (the API key still guards the data).
+4. On each device, open `https://clip.<your-domain>` and choose **Install app** / **Add to Home Screen**.
+
+### 3. Bring over the old history (one time)
+
+The previous version stored ~9,300 items in the D1 database `clipsync-db`. Create a Cloudflare API
+token with **Account → D1 → Read**, put `CF_ACCOUNT_ID`, `CF_API_TOKEN` and `D1_DATABASE_ID` in
+`.env`, rebuild, then in Container Manager open the `clipsync` container's terminal and run:
+
+```bash
+node dist/import-legacy.cjs --d1
+```
+
+Clips, notes, prompts and bookmarks keep their ids, dates, stars and tags (including `slot:N`).
+Re-running is safe: already-imported rows are skipped. Remove the token from `.env` afterwards.
+
+### 4. Capture copies from Windows
+
+```bash
+pip install pyperclip requests
+python scripts/clipboard_sync.py --server http://NAS-IP:5000 --api-key YOUR_KEY
+```
+
+Away from home, point `--server` at `https://clip.<your-domain>` and set `CF_ACCESS_CLIENT_ID` /
+`CF_ACCESS_CLIENT_SECRET` from an Access service token.
+
+### API notes
+
+- `GET /api/clips` returns the newest 1,000 clips; `?limit=N` (or `all`) and `?q=text` (searches
+  every clip). Clips over 4,000 characters come back as a preview with `truncated: true`;
+  `GET /api/clips/:id` has the full text. The app loads it before copying or editing.
+- `GET /api/health` is open (Docker health check). Everything else needs `X-API-Key` or
+  `Authorization: Bearer` when `CLIPSYNC_API_KEY` is set.
+- AI features need `OPENAI_API_KEY`; without it the rest of the app works and AI calls return an error.
+
+## Development
+
+```bash
+npm ci
+npm run dev        # http://localhost:5000
+npm test
+npm run check      # TypeScript
+```
+
+---
+
+## Alternative: Cloudflare Worker + D1
+
+> This path predates the Synology setup and has no API-key check yet; put Cloudflare Access in front of it before use.
 
 The existing React interface is deployed unchanged as Cloudflare static assets. A Hono Worker serves the API, Cloudflare D1 stores clips, tags, bookmarks, prompts, and uploads, and the same Worker exposes both the app's REST API and a remote MCP endpoint.
 

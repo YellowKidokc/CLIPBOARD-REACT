@@ -59,6 +59,16 @@ async function buildAll() {
     external: externals,
     logLevel: "info",
   });
+
+  await esbuild({
+    entryPoints: ["server/import-cli.ts"],
+    platform: "node",
+    bundle: true,
+    format: "cjs",
+    outfile: "dist/import-legacy.cjs",
+    external: externals,
+    logLevel: "info",
+  });
 }
 
 buildAll().catch((err) => {
