@@ -64,7 +64,30 @@ Away from home, point `--server` at `https://clip.<your-domain>` and set `CF_ACC
   `GET /api/clips/:id` has the full text. The app loads it before copying or editing.
 - `GET /api/health` is open (Docker health check). Everything else needs `X-API-Key` or
   `Authorization: Bearer` when `CLIPSYNC_API_KEY` is set.
-- AI features need `OPENAI_API_KEY`; without it the rest of the app works and AI calls return an error.
+- AI is optional: without a provider configured the rest of the app works and AI calls return an error.
+
+### AI: DeepSeek or Ollama
+
+All three providers use the OpenAI chat API, so switching is configuration only (`.env`):
+
+| Setting | DeepSeek | Ollama (local, free) | OpenAI |
+|---|---|---|---|
+| `AI_PROVIDER` | `deepseek` | `ollama` | `openai` |
+| key / host | `DEEPSEEK_API_KEY` | `OLLAMA_HOST=192.168.1.50:11434` | `OPENAI_API_KEY` |
+| default `AI_MODEL` | `deepseek-chat` | `gemma4:e4b` | `gpt-4o-mini` |
+
+Leave `AI_PROVIDER` empty to use whichever is configured (DeepSeek first, then Ollama, then OpenAI).
+For Ollama, start it on the PC (or NAS) with `OLLAMA_HOST=0.0.0.0` so the container can reach it,
+and `ollama pull` the model first. The Cloudflare Worker can't reach an Ollama inside your house;
+use DeepSeek there.
+
+### MCP
+
+The server is an MCP server (Streamable HTTP, JSON-RPC) at `/api/mcp` with tools `search_clips`,
+`list_clips`, `get_clip`, `create_clip`, `list_bookmarks`, `list_prompts`. Point any MCP client at
+`http://NAS-IP:5000/api/mcp` (or `https://clip.<your-domain>/api/mcp`) and send the API key as the
+`X-API-Key` header. Search and list return at most 500 clips, with long clips as previews; `get_clip`
+returns the full text.
 
 ## Development
 
@@ -98,7 +121,7 @@ Copy the returned database ID into `wrangler.toml` in place of `REPLACE_WITH_YOU
 ```bash
 npx wrangler d1 migrations apply clipsync-db --remote
 npx wrangler secret put CLIPSYNC_API_KEY # required: the API is off without it
-npx wrangler secret put OPENAI_API_KEY   # optional; required only for AI chat
+npx wrangler secret put DEEPSEEK_API_KEY # optional, for AI chat (or OPENAI_API_KEY; set AI_PROVIDER to choose)
 npm run cf:deploy
 ```
 

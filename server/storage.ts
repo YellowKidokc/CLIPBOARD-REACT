@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { eq, desc, like, or } from "drizzle-orm";
+import { and, eq, desc, like, or } from "drizzle-orm";
 import {
   clips, type Clip, type InsertClip,
   tags, type Tag, type InsertTag,
@@ -12,6 +12,7 @@ import {
 export interface ClipListOptions {
   limit?: number;
   q?: string;
+  category?: string;
 }
 
 export interface IStorage {
@@ -62,7 +63,10 @@ export class DatabaseStorage implements IStorage {
 
   async getClips(opts: ClipListOptions = {}): Promise<Clip[]> {
     const q = opts.q?.trim();
-    const where = q ? or(like(clips.title, `%${q}%`), like(clips.content, `%${q}%`)) : undefined;
+    const where = and(
+      q ? or(like(clips.title, `%${q}%`), like(clips.content, `%${q}%`), like(clips.tags, `%${q}%`)) : undefined,
+      opts.category ? eq(clips.category, opts.category) : undefined,
+    );
     const query = db.select().from(clips).where(where).orderBy(desc(clips.updatedAt));
     return opts.limit ? query.limit(opts.limit) : query;
   }
