@@ -76,6 +76,10 @@ api.get("/clips/:id", async (c) => {
 api.post("/clips", async (c) => {
   try {
     const body = await c.req.json();
+    // The UI and MCP send tags/fields as arrays; the column stores JSON text.
+    for (const key of ["tags", "fields"] as const) {
+      if (Array.isArray(body[key])) body[key] = JSON.stringify(body[key]);
+    }
     const data = insertClipSchema.parse(body);
     const clip = await storage.createClip(data);
     return c.json(parseClip(clip), 201);

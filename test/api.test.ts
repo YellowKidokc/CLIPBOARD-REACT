@@ -125,3 +125,9 @@ test("chat goes to the configured OpenAI-compatible host with its model (fake Ol
     for (const k of ["AI_PROVIDER", "OLLAMA_HOST", "AI_MODEL"]) delete process.env[k];
   }
 });
+
+test("creating a clip accepts tags as an array (what the UI sends)", async () => {
+  const res = await app().request("/api/clips", json({ title: "ai answer", content: "x", tags: ["ai-generated", "slot:4"] }));
+  assert.equal(res.status, 201);
+  assert.deepEqual((await res.json()).tags, ["ai-generated", "slot:4"]);
+});
