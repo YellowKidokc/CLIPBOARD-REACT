@@ -3,10 +3,28 @@ import { storage } from "./storage";
 import { insertClipSchema, insertTagSchema, insertBookmarkSchema, insertPromptSchema, insertUploadSchema } from "@shared/schema";
 import { z } from "zod";
 import OpenAI from "openai";
+import { NO_AI_MESSAGE, resolveAiConfig } from "@shared/ai-provider";
 import * as cheerio from "cheerio";
 import { streamSSE } from "hono/streaming";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// The AI client is created on first use from AI_PROVIDER / DEEPSEEK_API_KEY / OLLAMA_HOST /
+// OPENAI_API_KEY (see shared/ai-provider.ts), so the server starts with no AI configured.
+let aiClient: { client: OpenAI; model: string; signature: string } | undefined;
+function ai() {
+  const config = resolveAiConfig(process.env);
+  if (!config) throw new Error(NO_AI_MESSAGE);
+  const signature = `${config.baseURL}|${config.apiKey}|${config.model}`;
+  if (aiClient?.signature !== signature) {
+    aiClient = { client: new OpenAI({ baseURL: config.baseURL, apiKey: config.apiKey }), model: config.model, signature };
+  }
+  return aiClient;
+}
+const openai = new Proxy({} as OpenAI, {
+  get(_target, prop) {
+    return Reflect.get(ai().client, prop);
+  },
+});
+const aiModel = () => ai().model;
 
 const api = new Hono();
 
@@ -26,9 +44,27 @@ function parseBookmark(bm: any) {
   return { ...bm, bookmarkTags: parseJsonField(bm.bookmarkTags, []) };
 }
 
+// The list is for browsing: newest first, capped, with long clips cut to a preview.
+// `truncated: true` means GET /clips/:id has the full text.
+export const CLIP_PREVIEW_CHARS = 4000;
+const DEFAULT_CLIP_LIMIT = 1000;
+
+export function toListItem(clip: any) {
+  const content: string = clip.content ?? "";
+  if (content.length <= CLIP_PREVIEW_CHARS) return { ...parseClip(clip), truncated: false };
+  return {
+    ...parseClip(clip),
+    content: content.slice(0, CLIP_PREVIEW_CHARS),
+    truncated: true,
+    contentLength: content.length,
+  };
+}
+
 api.get("/clips", async (c) => {
-  const clips = await storage.getClips();
-  return c.json(clips.map(parseClip));
+  const limitParam = c.req.query("limit");
+  const limit = limitParam === "all" ? undefined : Math.min(Math.max(parseInt(limitParam || "", 10) || DEFAULT_CLIP_LIMIT, 1), 50000);
+  const clips = await storage.getClips({ limit, q: c.req.query("q") });
+  return c.json(clips.map(toListItem));
 });
 
 api.get("/clips/:id", async (c) => {
@@ -40,6 +76,10 @@ api.get("/clips/:id", async (c) => {
 api.post("/clips", async (c) => {
   try {
     const body = await c.req.json();
+    // The UI and MCP send tags/fields as arrays; the column stores JSON text.
+    for (const key of ["tags", "fields"] as const) {
+      if (Array.isArray(body[key])) body[key] = JSON.stringify(body[key]);
+    }
     const data = insertClipSchema.parse(body);
     const clip = await storage.createClip(data);
     return c.json(parseClip(clip), 201);
@@ -50,6 +90,15 @@ api.post("/clips", async (c) => {
 
 api.patch("/clips/:id", async (c) => {
   const body = await c.req.json();
+  delete body.truncated;
+  delete body.contentLength;
+  if (typeof body.content === "string" && body.content.length === CLIP_PREVIEW_CHARS) {
+    // Guard: never overwrite a long clip with its own list preview.
+    const existing = await storage.getClip(c.req.param("id"));
+    if (existing && existing.content.length > CLIP_PREVIEW_CHARS && existing.content.startsWith(body.content)) {
+      return c.json({ message: "Refusing to save a truncated preview over the full clip; reload the clip first." }, 409);
+    }
+  }
   const clip = await storage.updateClip(c.req.param("id"), body);
   if (!clip) return c.json({ message: "Not found" }, 404);
   return c.json(parseClip(clip));
@@ -196,7 +245,7 @@ api.post("/chat", async (c) => {
   return streamSSE(c, async (stream) => {
     try {
       const completion = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: aiModel(),
         messages: contextMessages,
         stream: true,
         max_tokens: 4096,
@@ -299,7 +348,7 @@ api.post("/research", async (c) => {
         await sendEvent("status", { message: "Finding relevant sources...", phase: "search" });
         try {
           const searchResponse = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
+            model: aiModel(),
             messages: [
               {
                 role: "system",
@@ -424,7 +473,7 @@ ${sourceContext}`;
       await sendEvent("status", { message: "Generating research report...", phase: "synthesize", progress: 70 });
 
       const completion = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: aiModel(),
         messages: [
           { role: "system", content: "You are a professional research analyst. Synthesize information from multiple sources into clear, well-structured research reports. Always cite which source information comes from. Be thorough but concise." },
           { role: "user", content: researchPrompt },
@@ -551,7 +600,7 @@ api.post("/crawl", async (c) => {
         ).join("\n\n");
 
         const completion = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
+          model: aiModel(),
           messages: [
             { role: "system", content: "You are a web analysis assistant. Summarize and analyze crawled web pages based on the user's query. Be thorough and organized." },
             { role: "user", content: `Query: ${query}\n\nAnalyze these crawled pages:\n\n${pagesContext}` },
@@ -580,113 +629,143 @@ api.post("/crawl", async (c) => {
   });
 });
 
-api.get("/mcp/tools", async (c) => {
-  return c.json({
-    tools: [
-      {
-        name: "search_clips",
-        description: "Search through all clips and notes",
-        inputSchema: {
-          type: "object",
-          properties: { query: { type: "string", description: "Search query" } },
-          required: ["query"],
-        },
+const MCP_TOOLS = [
+  {
+    name: "search_clips",
+    description: "Search through all clips and notes",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query (title, content and tags)" },
+        limit: { type: "number", description: "Max results, default 50" },
       },
-      {
-        name: "create_clip",
-        description: "Create a new clip/note",
-        inputSchema: {
-          type: "object",
-          properties: {
-            title: { type: "string" },
-            content: { type: "string" },
-            category: { type: "string", enum: ["notes", "clipboard", "snippets", "prompts"] },
-            tags: { type: "array", items: { type: "string" } },
-          },
-          required: ["title", "content"],
-        },
+      required: ["query"],
+    },
+  },
+  {
+    name: "create_clip",
+    description: "Create a new clip/note",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        content: { type: "string" },
+        category: { type: "string", enum: ["notes", "clipboard", "snippets", "prompts"] },
+        tags: { type: "array", items: { type: "string" } },
       },
-      {
-        name: "get_clip",
-        description: "Get a specific clip by ID",
-        inputSchema: {
-          type: "object",
-          properties: { id: { type: "string" } },
-          required: ["id"],
-        },
+      required: ["title", "content"],
+    },
+  },
+  {
+    name: "get_clip",
+    description: "Get a specific clip by ID",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string" } },
+      required: ["id"],
+    },
+  },
+  {
+    name: "list_clips",
+    description: "List all clips, optionally filtered by category",
+    inputSchema: {
+      type: "object",
+      properties: {
+        category: { type: "string" },
+        limit: { type: "number", description: "Max clips, newest first, default 100" },
       },
-      {
-        name: "list_clips",
-        description: "List all clips, optionally filtered by category",
-        inputSchema: {
-          type: "object",
-          properties: { category: { type: "string" } },
-        },
-      },
-      {
-        name: "list_bookmarks",
-        description: "List all bookmarks",
-        inputSchema: { type: "object", properties: {} },
-      },
-      {
-        name: "list_prompts",
-        description: "List all prompt templates",
-        inputSchema: { type: "object", properties: {} },
-      },
-    ],
-  });
-});
+    },
+  },
+  {
+    name: "list_bookmarks",
+    description: "List all bookmarks",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "list_prompts",
+    description: "List all prompt templates",
+    inputSchema: { type: "object", properties: {} },
+  },
+];
+
+const MCP_MAX_RESULTS = 500;
+const mcpLimit = (value: unknown, fallback: number) =>
+  Math.min(Math.max(Number.parseInt(String(value ?? ""), 10) || fallback, 1), MCP_MAX_RESULTS);
+
+/** One MCP tool call. Clip lists are capped and long clips come back as previews (get_clip has the full text). */
+async function runMcpTool(tool: string, args: any = {}): Promise<{ status: number; body: unknown }> {
+  switch (tool) {
+    case "search_clips": {
+      const found = await storage.getClips({ q: String(args.query || ""), limit: mcpLimit(args.limit, 50) });
+      return { status: 200, body: { results: found.filter((c) => !c.deleted).map(toListItem) } };
+    }
+    case "create_clip": {
+      const clip = await storage.createClip({
+        title: args.title,
+        content: args.content || "",
+        category: args.category || "notes",
+        tags: JSON.stringify(args.tags || []),
+      });
+      return { status: 200, body: { created: parseClip(clip) } };
+    }
+    case "get_clip": {
+      const clip = await storage.getClip(args.id);
+      return { status: 200, body: { clip: clip ? parseClip(clip) : null } };
+    }
+    case "list_clips": {
+      const found = await storage.getClips({ category: args.category || undefined, limit: mcpLimit(args.limit, 100) });
+      return { status: 200, body: { clips: found.filter((c) => !c.deleted).map(toListItem) } };
+    }
+    case "list_bookmarks":
+      return { status: 200, body: { bookmarks: (await storage.getBookmarks()).map(parseBookmark) } };
+    case "list_prompts":
+      return { status: 200, body: { prompts: await storage.getPrompts() } };
+    default:
+      return { status: 400, body: { message: `Unknown tool: ${tool}` } };
+  }
+}
+
+api.get("/mcp/tools", (c) => c.json({ tools: MCP_TOOLS }));
 
 api.post("/mcp/call", async (c) => {
   try {
     const { tool, arguments: args } = await c.req.json();
-
-    switch (tool) {
-      case "search_clips": {
-        const allClips = await storage.getClips();
-        const query = (args.query || "").toLowerCase();
-        const results = allClips.filter(clip => {
-          if (clip.deleted) return false;
-          const clipTags = typeof clip.tags === "string" ? JSON.parse(clip.tags) : clip.tags;
-          return clip.title.toLowerCase().includes(query) ||
-            clip.content.toLowerCase().includes(query) ||
-            (clipTags || []).some((t: string) => t.toLowerCase().includes(query));
-        });
-        return c.json({ results: results.map(parseClip) });
-      }
-      case "create_clip": {
-        const clip = await storage.createClip({
-          title: args.title,
-          content: args.content || "",
-          category: args.category || "notes",
-          tags: JSON.stringify(args.tags || []),
-        });
-        return c.json({ created: parseClip(clip) });
-      }
-      case "get_clip": {
-        const clip = await storage.getClip(args.id);
-        return c.json({ clip: clip ? parseClip(clip) : null });
-      }
-      case "list_clips": {
-        const allClips = await storage.getClips();
-        const filtered = args.category
-          ? allClips.filter(clip => clip.category === args.category && !clip.deleted)
-          : allClips.filter(clip => !clip.deleted);
-        return c.json({ clips: filtered.map(parseClip) });
-      }
-      case "list_bookmarks": {
-        const bms = await storage.getBookmarks();
-        return c.json({ bookmarks: bms.map(parseBookmark) });
-      }
-      case "list_prompts": {
-        const ps = await storage.getPrompts();
-        return c.json({ prompts: ps });
-      }
-      default:
-        return c.json({ message: `Unknown tool: ${tool}` }, 400);
-    }
+    const { status, body } = await runMcpTool(tool, args);
+    return c.json(body, status as 200 | 400);
   } catch (e: any) {
     return c.json({ message: e.message }, 500);
+  }
+});
+
+// Stateless MCP over Streamable HTTP (JSON-RPC 2.0): point an MCP client at /api/mcp.
+api.post("/mcp", async (c) => {
+  let request: any;
+  try {
+    request = await c.req.json();
+  } catch {
+    return c.json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }, 400);
+  }
+  const id = request?.id ?? null;
+  const reply = (result: unknown) => c.json({ jsonrpc: "2.0", id, result });
+  switch (request?.method) {
+    case "initialize":
+      return reply({ protocolVersion: "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "ClipSync", version: "1.0.0" } });
+    case "notifications/initialized":
+      return c.body(null, 202);
+    case "ping":
+      return reply({});
+    case "tools/list":
+      return reply({ tools: MCP_TOOLS });
+    case "tools/call": {
+      try {
+        const { status, body } = await runMcpTool(request.params?.name, request.params?.arguments || {});
+        return reply({ content: [{ type: "text", text: JSON.stringify(body) }], isError: status !== 200 });
+      } catch (e: any) {
+        return reply({ content: [{ type: "text", text: e.message }], isError: true });
+      }
+    }
+    default:
+      return c.json({ jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } }, 404);
   }
 });
 

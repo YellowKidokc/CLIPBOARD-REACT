@@ -6,3 +6,8 @@ vite.config.ts.*
 *.tar.gz
 .local
 .wrangler
+
+# Server database and secrets
+data/
+.env
+__pycache__/

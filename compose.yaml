@@ -1,0 +1,37 @@
+# Synology: Container Manager -> Project -> Create -> this folder. See README "Synology + Cloudflare".
+services:
+  clipsync:
+    build: .
+    container_name: clipsync
+    restart: unless-stopped
+    # Run as the DSM user that owns ./data (first admin is usually 1024, group "users" is 100).
+    user: "${CLIPSYNC_UID:-1024}:${CLIPSYNC_GID:-100}"
+    environment:
+      CLIPSYNC_API_KEY: ${CLIPSYNC_API_KEY:-}
+      AI_PROVIDER: ${AI_PROVIDER:-}
+      AI_MODEL: ${AI_MODEL:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      OLLAMA_HOST: ${OLLAMA_HOST:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      CF_ACCOUNT_ID: ${CF_ACCOUNT_ID:-}
+      CF_API_TOKEN: ${CF_API_TOKEN:-}
+      D1_DATABASE_ID: ${D1_DATABASE_ID:-}
+    ports:
+      - "${CLIPSYNC_PORT:-5000}:5000"
+    volumes:
+      - ./data:/data
+    security_opt:
+      - no-new-privileges:true
+
+  # Cloudflare Tunnel: makes the app reachable at your hostname without opening router ports.
+  # Enabled when .env has COMPOSE_PROFILES=tunnel and CLOUDFLARE_TUNNEL_TOKEN.
+  tunnel:
+    image: cloudflare/cloudflared:2026.10.0
+    container_name: clipsync-tunnel
+    restart: unless-stopped
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - clipsync

@@ -2,11 +2,17 @@ import express, { type Request, Response, NextFunction } from "express";
 import { createServer } from "http";
 import { Hono } from "hono";
 import { api } from "./routes";
-import { initializeDatabase } from "./db";
+import { initializeDatabase, sqlite } from "./db";
+import { requireApiKey } from "./auth";
 
 initializeDatabase();
 
 const honoApp = new Hono();
+honoApp.use("/api/*", requireApiKey());
+honoApp.get("/api/health", (c) => {
+  const { n } = sqlite.prepare("SELECT count(*) AS n FROM clips").get() as { n: number };
+  return c.json({ ok: true, clips: n, auth: Boolean(process.env.CLIPSYNC_API_KEY) });
+});
 honoApp.route("/api", api);
 
 const expressApp = express();

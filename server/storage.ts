@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { eq, desc } from "drizzle-orm";
+import { and, eq, desc, like, or } from "drizzle-orm";
 import {
   clips, type Clip, type InsertClip,
   tags, type Tag, type InsertTag,
@@ -9,12 +9,18 @@ import {
   users, type User, type InsertUser,
 } from "@shared/schema";
 
+export interface ClipListOptions {
+  limit?: number;
+  q?: string;
+  category?: string;
+}
+
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
 
-  getClips(): Promise<Clip[]>;
+  getClips(opts?: ClipListOptions): Promise<Clip[]>;
   getClip(id: string): Promise<Clip | undefined>;
   createClip(clip: InsertClip): Promise<Clip>;
   updateClip(id: string, data: Partial<InsertClip>): Promise<Clip | undefined>;
@@ -55,8 +61,14 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async getClips(): Promise<Clip[]> {
-    return db.select().from(clips).orderBy(desc(clips.updatedAt));
+  async getClips(opts: ClipListOptions = {}): Promise<Clip[]> {
+    const q = opts.q?.trim();
+    const where = and(
+      q ? or(like(clips.title, `%${q}%`), like(clips.content, `%${q}%`), like(clips.tags, `%${q}%`)) : undefined,
+      opts.category ? eq(clips.category, opts.category) : undefined,
+    );
+    const query = db.select().from(clips).where(where).orderBy(desc(clips.updatedAt));
+    return opts.limit ? query.limit(opts.limit) : query;
   }
   async getClip(id: string): Promise<Clip | undefined> {
     const [clip] = await db.select().from(clips).where(eq(clips.id, id));

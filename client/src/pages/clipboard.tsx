@@ -221,6 +221,18 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** True when the list returned only a preview of this clip's content. */
+function isTruncated(clip: Clip): boolean {
+  return Boolean((clip as Clip & { truncated?: boolean }).truncated);
+}
+
+async function fetchFullContent(id: string): Promise<string> {
+  const res = await fetch(`/api/clips/${id}`);
+  if (!res.ok) throw new Error(`${res.status}`);
+  const full = (await res.json()) as Clip;
+  return full.content ?? "";
+}
+
 export default function ClipboardPage() {
   const { data: clips = [] } = useQuery<Clip[]>({ queryKey: ["/api/clips"] });
   const { data: apiTags = [] } = useQuery<Tag[]>({ queryKey: ["/api/tags"] });
@@ -409,12 +421,32 @@ export default function ClipboardPage() {
     return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
 
+  // Long clips arrive from the list as a preview; the editor always works on the full text.
+  const [fullContentPending, setFullContentPending] = useState(false);
   useEffect(() => {
-    if (selectedClip) {
-      setEditingContent(selectedClip.content || "");
-      setEditingTitle(selectedClip.title || "");
-      setEditingFields(arrayField<StructuredField>(selectedClip.fields));
+    if (!selectedClip) return;
+    setEditingContent(selectedClip.content || "");
+    setEditingTitle(selectedClip.title || "");
+    setEditingFields(arrayField<StructuredField>(selectedClip.fields));
+    if (!isTruncated(selectedClip)) {
+      setFullContentPending(false);
+      return;
     }
+    let cancelled = false;
+    setFullContentPending(true);
+    fetchFullContent(selectedClip.id)
+      .then((full) => {
+        if (!cancelled) setEditingContent(full);
+      })
+      .catch(() => {
+        if (!cancelled) toast({ title: "Couldn't load the full clip", variant: "destructive" });
+      })
+      .finally(() => {
+        if (!cancelled) setFullContentPending(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [selectedClipId, selectedClip?.updatedAt]);
 
   useEffect(() => {
@@ -430,6 +462,14 @@ export default function ClipboardPage() {
 
   const handleCopy = async (clip: Clip) => {
     let textToCopy = clip.content;
+    if (isTruncated(clip)) {
+      try {
+        textToCopy = await fetchFullContent(clip.id);
+      } catch {
+        toast({ title: "Couldn't load the full clip", variant: "destructive" });
+        return;
+      }
+    }
     if (clip.isStructured && Array.isArray(clip.fields) && (clip.fields as StructuredField[]).length > 0) {
       textToCopy = (clip.fields as StructuredField[]).map(f => `${f.label}: ${f.value}`).join("\n");
     }
@@ -445,6 +485,10 @@ export default function ClipboardPage() {
 
   const handleSave = () => {
     if (!selectedClip) return;
+    if (fullContentPending) {
+      toast({ title: "Still loading the full clip, try again in a moment" });
+      return;
+    }
     updateClip.mutate({
       id: selectedClip.id,
       content: editingContent,

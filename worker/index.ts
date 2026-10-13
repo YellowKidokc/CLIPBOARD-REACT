@@ -7,10 +7,19 @@ import { insertClipSchema, insertTagSchema, insertBookmarkSchema, insertPromptSc
 import { z } from "zod";
 import { streamSSE } from "hono/streaming";
 import OpenAI from "openai";
+import { apiKeyGate } from "../shared/api-key";
+import { NO_AI_MESSAGE, resolveAiConfig } from "../shared/ai-provider";
 
 type Bindings = {
   DB: D1Database;
-  OPENAI_API_KEY: string;
+  /** AI: AI_PROVIDER, AI_MODEL, DEEPSEEK_API_KEY, OLLAMA_HOST, OPENAI_API_KEY (shared/ai-provider.ts). */
+  AI_PROVIDER?: string;
+  AI_MODEL?: string;
+  DEEPSEEK_API_KEY?: string;
+  OLLAMA_HOST?: string;
+  OPENAI_API_KEY?: string;
+  /** `wrangler secret put CLIPSYNC_API_KEY`. Without it the API answers 503: this Worker is public. */
+  CLIPSYNC_API_KEY?: string;
   ENVIRONMENT: string;
   ASSETS: Fetcher;
 };
@@ -21,8 +30,9 @@ function getDb(c: any) {
   return drizzle(c.env.DB, { schema });
 }
 
-function getOpenAI(c: any) {
-  return new OpenAI({ apiKey: c.env.OPENAI_API_KEY });
+function getAi(c: any) {
+  const config = resolveAiConfig(c.env);
+  return config ? { client: new OpenAI({ baseURL: config.baseURL, apiKey: config.apiKey }), model: config.model } : null;
 }
 
 function parseJsonField(value: unknown) {
@@ -226,7 +236,8 @@ api.delete("/uploads/:id", async (c) => {
 });
 
 api.post("/chat", async (c) => {
-  if (!c.env.OPENAI_API_KEY) return c.json({ message: "OPENAI_API_KEY is not configured" }, 503);
+  const ai = getAi(c);
+  if (!ai) return c.json({ message: NO_AI_MESSAGE }, 503);
   const { messages = [], systemPrompt, attachments = [] } = await c.req.json();
   const context: any[] = [{
     role: "system",
@@ -240,7 +251,7 @@ api.post("/chat", async (c) => {
   }
   return streamSSE(c, async (stream) => {
     try {
-      const completion = await getOpenAI(c).chat.completions.create({ model: "gpt-4o-mini", messages: context, stream: true, max_tokens: 4096 });
+      const completion = await ai.client.chat.completions.create({ model: ai.model, messages: context, stream: true, max_tokens: 4096 });
       for await (const chunk of completion) {
         const content = chunk.choices[0]?.delta?.content;
         if (content) await stream.writeSSE({ data: JSON.stringify({ content }) });
@@ -379,6 +390,7 @@ api.post("/import", async (c) => {
   return c.json({ imported });
 });
 
+app.use("/api/*", apiKeyGate((c) => c.env.CLIPSYNC_API_KEY, "refuse"));
 app.route("/api", api);
 
 app.onError((error, c) => {
